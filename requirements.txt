@@ -1,0 +1,37 @@
+# --- test framework ---
+pytest>=8.2
+pytest-xdist>=3.6          # parallel runs: -n auto
+pytest-rerunfailures>=14.0 # flaky-network retries
+pytest-timeout>=2.3
+
+# --- reporting ---
+allure-pytest>=2.13
+pytest-html>=4.1
+pytest-json-report>=1.5
+
+# --- config / data ---
+python-dotenv>=1.0
+PyYAML>=6.0
+pydantic>=2.7              # typed settings validation
+openpyxl>=3.1              # xlsx test data
+pandas>=2.2
+
+# --- frontend automation ---
+playwright>=1.44
+
+# --- backend / api ---
+requests>=2.32
+httpx>=0.27
+
+# --- datastores ---
+psycopg[binary]>=3.1
+pymongo>=4.7
+opensearch-py>=2.6
+
+# --- aws ---
+boto3>=1.34
+
+# --- lint / format (also pinned in .pre-commit-config.yaml) ---
+black>=24.4
+ruff>=0.4
+isort>=5.13

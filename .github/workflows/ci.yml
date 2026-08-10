@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      env:
+        description: target environment
+        type: choice
+        options: [dev, staging]
+        default: dev
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: ruff check lib
+      - run: black --check lib
+      - run: isort --check-only lib
+
+  critical-path:
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m playwright install --with-deps chromium
+
+      # secrets live in GitHub Actions secrets, never in the repo
+      - name: Run critical path
+        env:
+          ENV: ${{ inputs.env || 'dev' }}
+          SUBSIDIARY: subsidiary_001
+          DATA_SET: test
+          FE_USERNAME: ${{ secrets.FE_USERNAME }}
+          FE_PASSWORD: ${{ secrets.FE_PASSWORD }}
+          BE_API_TOKEN: ${{ secrets.BE_API_TOKEN }}
+          POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          OPENSEARCH_HOST: ${{ secrets.OPENSEARCH_HOST }}
+          OPENSEARCH_USER: ${{ secrets.OPENSEARCH_USER }}
+          OPENSEARCH_PASSWORD: ${{ secrets.OPENSEARCH_PASSWORD }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: pytest -m critical_path lib/app/critical_path --reruns 1
+
+      - name: Upload allure results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results
+          path: reports/allure-results
+          retention-days: 14
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs
+          path: logs
+          retention-days: 7

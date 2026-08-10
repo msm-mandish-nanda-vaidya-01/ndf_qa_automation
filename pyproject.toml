@@ -1,0 +1,31 @@
+[project]
+name = "ndf-qa-automation"
+version = "0.1.0"
+description = "NDF QA automation: BE action -> FE validation -> persisted-state verification"
+requires-python = ">=3.11"
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+known_first_party = ["lib"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "C4", "SIM", "PT"]
+ignore = [
+    "E501",  # line length handled by black
+    "B008",  # function call in default arg — common in pytest fixtures
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # re-exports
+
+[tool.ruff.lint.isort]
+known-first-party = ["lib"]

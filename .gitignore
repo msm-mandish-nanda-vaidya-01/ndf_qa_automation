@@ -1,0 +1,54 @@
+# --- secrets ---
+.env
+.env.*
+!.env.example
+
+# --- python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# --- virtualenvs ---
+venv/
+.venv/
+env/
+ENV/
+
+# --- test / tooling caches ---
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# --- runtime output ---
+logs/
+!logs/.gitkeep
+reports/
+!reports/.gitkeep
+!reports/allure-results/.gitkeep
+!reports/allure-report/.gitkeep
+
+# --- browser artifacts (selenium/playwright) ---
+screenshots/
+videos/
+traces/
+*.har
+geckodriver.log
+chromedriver.log
+
+# --- editors / OS ---
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini

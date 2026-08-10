@@ -1,0 +1,53 @@
+# Non-secret configuration only: URLs, timeouts, feature flags.
+# Credentials, tokens and hosts-with-credentials belong in .env / CI secrets.
+#
+# `defaults` is deep-merged with the selected environment block.
+
+defaults:
+  timeouts:
+    page_load: 30
+    element: 15
+    api_request: 30
+    db_query: 20
+    # how long persisted state may lag behind the BE action
+    eventual_consistency: 60
+    opensearch_index_refresh: 10
+
+  retries:
+    api: 2
+    eventual_consistency_poll_interval: 2
+
+  features:
+    fe_headless: true
+    fe_screenshot_on_failure: true
+    fe_trace_on_failure: true
+    verify_s3: true
+    verify_opensearch: true
+    strict_db_row_count: false
+
+  browser:
+    name: chromium
+    viewport: { width: 1920, height: 1080 }
+    slow_mo_ms: 0
+
+environments:
+  dev:
+    urls:
+      fe_base: https://dev.example.internal
+      be_base: https://api-dev.example.internal
+      be_etl: https://api-dev.example.internal/etl
+      be_purchase_checker: https://api-dev.example.internal/purchase-checker
+    features:
+      strict_db_row_count: false
+
+  staging:
+    urls:
+      fe_base: https://staging.example.internal
+      be_base: https://api-staging.example.internal
+      be_etl: https://api-staging.example.internal/etl
+      be_purchase_checker: https://api-staging.example.internal/purchase-checker
+    timeouts:
+      eventual_consistency: 120
+    features:
+      fe_headless: true
+      strict_db_row_count: true

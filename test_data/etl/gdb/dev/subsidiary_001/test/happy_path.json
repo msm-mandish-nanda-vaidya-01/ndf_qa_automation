@@ -1,0 +1,16 @@
+{
+  "_comment": "PLACEHOLDER — replace every value below once the GDB ETL payload contract is confirmed. Loaded via data_loader.load_case('etl/gdb', 'happy_path').",
+  "case_name": "happy_path",
+  "description": "TODO: describe what this case exercises",
+  "payload": {
+    "subsidiary": "subsidiary_001",
+    "source": "TODO_SOURCE_IDENTIFIER",
+    "batch_size": 0,
+    "mode": "TODO_MODE"
+  },
+  "expected": {
+    "_comment": "Only values the BE cannot tell us. Anything the BE returns must be read from GdbEtlResult, not asserted from here.",
+    "status": "TODO_TERMINAL_STATUS",
+    "min_record_count": 0
+  }
+}
