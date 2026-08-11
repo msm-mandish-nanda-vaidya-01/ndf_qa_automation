@@ -30,6 +30,7 @@ opensearch-py>=2.6
 
 # --- aws ---
 boto3>=1.34
+sshtunnel>=0.4              # SSH bastion tunnel to reach DocumentDB inside the VPC
 
 # --- lint / format (also pinned in .pre-commit-config.yaml) ---
 black>=24.4

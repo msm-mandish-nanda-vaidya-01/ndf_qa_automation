@@ -1,4 +1,4 @@
-"""Datastore fixtures: postgres (GDB + XDB), mongo, opensearch, s3.
+"""Datastore fixtures: postgres (GDB + REPL), mongo, opensearch, s3.
 
 Session-scoped and lazily connected — a test that never touches Mongo should not
 pay for a Mongo connection.
@@ -21,17 +21,36 @@ def postgres_gdb(config):
 
 
 @pytest.fixture(scope="session")
-def postgres_xdb(config):
-    """Connected ``PostgresClient`` for the XDB database, closed at session end.
+def postgres_repl(config):
+    """Connected ``PostgresClient`` for the REPL database, closed at session end.
 
     Fails fast on health check.
     """
-    raise NotImplementedError("TODO: yield PostgresClient(config.postgres_xdb.dsn)")
+    raise NotImplementedError("TODO: yield PostgresClient(config.postgres_repl.dsn)")
 
 
 @pytest.fixture(scope="session")
-def mongo(config):
-    """Connected ``MongoDBClient``, closed at session end."""
+def _bastion_tunnel(config):
+    """Open the SSH tunnel to the VPC when this env's Mongo needs one.
+
+    A no-op (yields immediately) when ``config.aws.bastion_host`` is empty — e.g. local
+    dev Mongo with no VPC in front of it. Otherwise opens a local forwarded port to
+    DocumentDB via ``config.aws.bastion_host``/``bastion_key_file`` for the ``mongo``
+    fixture to connect through, and closes it at session end.
+    """
+    raise NotImplementedError(
+        "TODO: if config.aws.bastion_host, open an sshtunnel.SSHTunnelForwarder using "
+        "bastion_key_file and yield the local bound port; else yield None"
+    )
+
+
+@pytest.fixture(scope="session")
+def mongo(config, _bastion_tunnel):
+    """Connected ``MongoDBClient``, closed at session end.
+
+    Connects through ``_bastion_tunnel`` when this env needs one, and passes
+    ``tls=True, tlsCAFile=config.mongo.tls_ca_file`` when that's set (DocumentDB).
+    """
     raise NotImplementedError("TODO: yield MongoDBClient from config.mongo")
 
 
@@ -48,6 +67,6 @@ def s3(config):
 
 
 @pytest.fixture(scope="session")
-def stores(postgres_gdb, postgres_xdb, mongo, opensearch, s3):
+def stores(postgres_gdb, postgres_repl, mongo, opensearch, s3):
     """All five clients bundled — convenient for ``db/*_checks.py`` entrypoints."""
     raise NotImplementedError("TODO: return a simple namespace of the five clients")

@@ -58,9 +58,9 @@ def test_fe_matches_be(page, config, be_result):
 @pytest.mark.module
 @pytest.mark.db
 @pytest.mark.postgres
-def test_postgres_state(postgres_xdb, config, be_result):
-    """The session and audit rows are persisted in the XDB database."""
-    raise NotImplementedError("TODO: call postgres_checks.verify(postgres_xdb, config, be_result)")
+def test_postgres_state(postgres_repl, config, be_result):
+    """The session and audit rows are persisted in the REPL database."""
+    raise NotImplementedError("TODO: call postgres_checks.verify(postgres_repl, config, be_result)")
 
 
 @pytest.mark.module

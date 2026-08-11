@@ -13,10 +13,18 @@ dotenv file carries one set per entry in ``settings.yaml``'s ``defaults.subsidia
 (e.g. ``FE_URL_MJP``, ``FE_URL_KOR``, ``FE_URL_USA``), and ``get_config`` resolves only
 the active subsidiary's set into ``Config.credentials``.
 
-Postgres is two distinct databases, GDB and XDB, not one — ``POSTGRES_*`` is suffixed
-per database (``POSTGRES_HOST_GDB``, ``POSTGRES_HOST_XDB``, ...) and both resolve into
-``Config.postgres_gdb``/``Config.postgres_xdb`` unconditionally (unlike subsidiary
-credentials, a run doesn't pick one — modules choose whichever database they own).
+Postgres is two distinct databases, GDB and REPL (replacement match), not one —
+``POSTGRES_*`` is suffixed per database (``POSTGRES_HOST_GDB``, ``POSTGRES_HOST_REPL``,
+...) and both resolve into ``Config.postgres_gdb``/``Config.postgres_repl``
+unconditionally (unlike subsidiary credentials, a run doesn't pick one — modules choose
+whichever database they own).
+
+MongoDB (DocumentDB) requires a CA bundle to verify the server's TLS cert, and reaching
+either DocumentDB lives behind an SSH bastion in the VPC — both are files, not values,
+so ``.env.<env>`` stores a path into the gitignored ``certs/`` directory rather than
+file content: ``MONGO_TLS_CA_FILE`` and ``AWS_BASTION_KEY_FILE``. See
+``Config.mongo.tls_ca_file`` / ``Config.aws.bastion_key_file`` and
+docs/setup/getting-started.md for how to obtain the actual files.
 
 Lookup precedence, highest first:
 
@@ -45,6 +53,7 @@ SETTINGS_PATH = Path(__file__).with_name("settings.yaml")
 TEST_DATA_ROOT = REPO_ROOT / "test_data"
 REPORTS_ROOT = REPO_ROOT / "reports"
 LOGS_ROOT = REPO_ROOT / "logs"
+CERTS_ROOT = REPO_ROOT / "certs"
 
 ENVIRONMENTS: tuple[str, ...] = ("dev", "stg", "prod")
 DEFAULT_ENV = "dev"
@@ -173,6 +182,7 @@ class PostgresConfig:
 class MongoConfig:
     uri: str
     database: str
+    tls_ca_file: str  # absolute path into certs/, or "" when this env's Mongo needs no TLS
 
 
 @dataclass(frozen=True)
@@ -190,6 +200,12 @@ class AwsConfig:
     access_key_id: str
     secret_access_key: str
     bucket: str
+    # SSH bastion used to tunnel into the VPC to reach DocumentDB — bastion_host empty
+    # means this env's DocumentDB is reachable without a tunnel (e.g. local dev Mongo).
+    bastion_host: str
+    bastion_user: str
+    bastion_port: int
+    bastion_key_file: str  # absolute path into certs/, or "" when bastion_host is empty
 
 
 @dataclass(frozen=True)
@@ -206,9 +222,9 @@ class Credentials:
 class Config:
     """Resolved configuration for one run.
 
-    ``postgres_gdb``/``postgres_xdb`` are two distinct Postgres databases (GDB and
-    XDB), not a primary/replica pair — a module picks whichever one it's responsible
-    for, never both by default.
+    ``postgres_gdb``/``postgres_repl`` are two distinct Postgres databases (GDB and
+    REPL — replacement match), not a primary/replica pair — a module picks whichever
+    one it's responsible for, never both by default.
     """
 
     env: str
@@ -217,7 +233,7 @@ class Config:
     settings: dict[str, Any]
     credentials: Credentials
     postgres_gdb: PostgresConfig
-    postgres_xdb: PostgresConfig
+    postgres_repl: PostgresConfig
     mongo: MongoConfig
     opensearch: OpenSearchConfig
     aws: AwsConfig
@@ -316,8 +332,8 @@ def _suffixed_key(name: str, suffix: str) -> str:
     Two independent things in ``.env.<env>`` are split this way rather than global:
     frontend URL/login (suffixed per subsidiary — each subsidiary logs into a separate
     country domain, see docs/context/purchase_checker/xdb_cross_system_flow.md) and
-    Postgres connection details (suffixed per database — GDB and XDB are two distinct
-    Postgres instances, see ``PostgresConfig``/``Config.postgres_gdb``/``postgres_xdb``).
+    Postgres connection details (suffixed per database — GDB and REPL are two distinct
+    Postgres instances, see ``PostgresConfig``/``Config.postgres_gdb``/``postgres_repl``).
     """
     return f"{name}_{suffix}"
 
@@ -327,7 +343,7 @@ def _postgres_config(secrets: Mapping[str, str], db_name: str) -> PostgresConfig
 
     Args:
         secrets: Layered secrets for the active environment (see ``_build_env_layers``).
-        db_name: ``"GDB"`` or ``"XDB"`` — matches the ``.env.<env>`` key suffix.
+        db_name: ``"GDB"`` or ``"REPL"`` — matches the ``.env.<env>`` key suffix.
 
     Returns:
         A :class:`PostgresConfig` built from that database's ``POSTGRES_*_<db_name>`` keys.
@@ -339,6 +355,39 @@ def _postgres_config(secrets: Mapping[str, str], db_name: str) -> PostgresConfig
         user=_optional(secrets, _suffixed_key("POSTGRES_USER", db_name)),
         password=_optional(secrets, _suffixed_key("POSTGRES_PASSWORD", db_name)),
     )
+
+
+def _resolve_cert_path(secrets: Mapping[str, str], key: str) -> str:
+    """Resolve a ``.env.<env>`` key that names a file under ``certs/`` to an absolute path.
+
+    Used for the Mongo TLS CA bundle and the AWS bastion SSH key — both are files
+    dropped into the gitignored ``certs/`` directory after cloning, not values that
+    live in the dotenv file itself (see docs/setup/getting-started.md).
+
+    Args:
+        secrets: Layered secrets for the active environment (see ``_build_env_layers``).
+        key: The ``.env.<env>`` key holding a path relative to the repo root, e.g.
+            ``"certs/mongo-ca-bundle.pem"``. Empty/unset means this env needs no file
+            here (e.g. local Mongo with no TLS) — returned as ``""``, not an error.
+
+    Returns:
+        The absolute path as a string, or ``""`` if the key is unset.
+
+    Raises:
+        ConfigError: If the key is set but the file doesn't exist — almost always
+            means the file from docs/setup/getting-started.md hasn't been dropped
+            into ``certs/`` yet, not a code bug.
+    """
+    raw = _optional(secrets, key)
+    if not raw:
+        return ""
+    path = REPO_ROOT / raw
+    if not path.is_file():
+        raise ConfigError(
+            f"{key}='{raw}' does not exist at {path}. "
+            "See docs/setup/getting-started.md for where to obtain this file."
+        )
+    return str(path)
 
 
 @cache
@@ -366,8 +415,9 @@ def get_config(
     Raises:
         ConfigError: If the environment is not one of ``ENVIRONMENTS``, its secrets
             file is missing outside CI, the subsidiary is not one of
-            ``settings.yaml``'s ``defaults.subsidiaries``, or ``settings.yaml`` has no
-            environment block for it.
+            ``settings.yaml``'s ``defaults.subsidiaries``, ``settings.yaml`` has no
+            environment block for it, or ``MONGO_TLS_CA_FILE``/``AWS_BASTION_KEY_FILE``
+            is set but the file isn't present under ``certs/`` (see ``_resolve_cert_path``).
     """
     resolved_env = _resolve_env(env)
     secrets = _build_env_layers(resolved_env)
@@ -385,10 +435,11 @@ def get_config(
             be_api_token=_optional(secrets, _suffixed_key("BE_API_TOKEN", resolved_subsidiary)),
         ),
         postgres_gdb=_postgres_config(secrets, "GDB"),
-        postgres_xdb=_postgres_config(secrets, "XDB"),
+        postgres_repl=_postgres_config(secrets, "REPL"),
         mongo=MongoConfig(
             uri=_optional(secrets, "MONGO_URI", "mongodb://localhost:27017"),
             database=_optional(secrets, "MONGO_DB", "ndf"),
+            tls_ca_file=_resolve_cert_path(secrets, "MONGO_TLS_CA_FILE"),
         ),
         opensearch=OpenSearchConfig(
             host=_optional(secrets, "OPENSEARCH_HOST", "localhost"),
@@ -402,5 +453,9 @@ def get_config(
             access_key_id=_optional(secrets, "AWS_ACCESS_KEY_ID"),
             secret_access_key=_optional(secrets, "AWS_SECRET_ACCESS_KEY"),
             bucket=_optional(secrets, "S3_BUCKET"),
+            bastion_host=_optional(secrets, "AWS_BASTION_HOST"),
+            bastion_user=_optional(secrets, "AWS_BASTION_USER", "ec2-user"),
+            bastion_port=int(_optional(secrets, "AWS_BASTION_PORT", "22")),
+            bastion_key_file=_resolve_cert_path(secrets, "AWS_BASTION_KEY_FILE"),
         ),
     )

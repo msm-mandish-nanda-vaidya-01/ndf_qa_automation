@@ -15,14 +15,20 @@ ndf_qa_automation/
 ├── README.md
 ├── Makefile                      # make test-module / test-e2e / lint
 │
+├── certs/                         # gitignored except README.md/.gitkeep — Mongo TLS CA
+│   │                               # bundle + AWS bastion SSH key(s), dropped in after clone
+│   └── README.md                  # what goes here and where to get it
+│
 ├── CLAUDE.md                     # entry point Claude reads first — rules + reference index
-├── docs/context/                  # detail docs CLAUDE.md links out to, read before related work
-│   ├── system-flow.md             # orchestrator/be/fe/db wiring, concurrency, error handling
-│   ├── test-data-conventions.md   # test_data path convention + where expected values come from
-│   ├── folder-structure.md        # this file
-│   ├── module-workflows.md        # etl vs purchase_checker domain workflows + known gaps
-│   └── purchase_checker/
-│       └── xdb_cross_system_flow.md   # full flow of the system purchase_checker tests
+├── docs/
+│   ├── setup/getting-started.md   # first-clone walk-through: env files, certs/, verifying config
+│   └── context/                   # detail docs CLAUDE.md links out to, read before related work
+│       ├── system-flow.md             # orchestrator/be/fe/db wiring, concurrency, error handling
+│       ├── test-data-conventions.md   # test_data path convention + where expected values come from
+│       ├── folder-structure.md        # this file
+│       ├── module-workflows.md        # etl vs purchase_checker domain workflows + known gaps
+│       └── purchase_checker/
+│           └── xdb_cross_system_flow.md   # full flow of the system purchase_checker tests
 │
 ├── .github/workflows/ci.yml      # lint + smoke/critical-path run on PR (non-interactive CLI)
 ├── .claude/skills/                # project-local skills (e.g. new-module-scaffold)

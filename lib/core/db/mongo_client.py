@@ -1,6 +1,11 @@
 """MongoDB client wrapper. Read-only by convention.
 
 PLACEHOLDER — signatures only. Connection details come from ``get_config().mongo``.
+When ``get_config().mongo.tls_ca_file`` is set (DocumentDB, in ``stg``/``prod``), pass
+``tls=True, tlsCAFile=tls_ca_file`` to the pymongo client — see certs/README.md for
+where that file comes from. When ``get_config().aws.bastion_host`` is set, this client
+connects through the SSH tunnel opened by the ``_bastion_tunnel`` fixture in
+``lib/core/fixtures/db_fixtures.py``, not directly to ``uri``'s host.
 """
 
 from __future__ import annotations

@@ -45,6 +45,15 @@
 #       - run: pip install -r requirements.txt
 #       - run: python -m playwright install --with-deps chromium
 
+#       # certs/*.pem aren't in the repo — materialize them from base64-encoded secrets
+#       # (same two files described in certs/README.md)
+#       - name: Write certs
+#         run: |
+#           mkdir -p certs
+#           echo "${{ secrets.MONGO_TLS_CA_FILE_B64 }}" | base64 -d > certs/mongo-ca-bundle.pem
+#           echo "${{ secrets.AWS_BASTION_KEY_FILE_B64 }}" | base64 -d > certs/aws-bastion-key-ci.pem
+#           chmod 600 certs/aws-bastion-key-ci.pem
+
 #       # secrets live in GitHub Actions secrets, never in the repo
 #       - name: Run critical path
 #         env:
@@ -57,16 +66,20 @@
 #           POSTGRES_HOST_GDB: ${{ secrets.POSTGRES_HOST_GDB }}
 #           POSTGRES_USER_GDB: ${{ secrets.POSTGRES_USER_GDB }}
 #           POSTGRES_PASSWORD_GDB: ${{ secrets.POSTGRES_PASSWORD_GDB }}
-#           POSTGRES_HOST_XDB: ${{ secrets.POSTGRES_HOST_XDB }}
-#           POSTGRES_USER_XDB: ${{ secrets.POSTGRES_USER_XDB }}
-#           POSTGRES_PASSWORD_XDB: ${{ secrets.POSTGRES_PASSWORD_XDB }}
+#           POSTGRES_HOST_REPL: ${{ secrets.POSTGRES_HOST_REPL }}
+#           POSTGRES_USER_REPL: ${{ secrets.POSTGRES_USER_REPL }}
+#           POSTGRES_PASSWORD_REPL: ${{ secrets.POSTGRES_PASSWORD_REPL }}
 #           MONGO_URI: ${{ secrets.MONGO_URI }}
+#           MONGO_TLS_CA_FILE: certs/mongo-ca-bundle.pem
 #           OPENSEARCH_HOST: ${{ secrets.OPENSEARCH_HOST }}
 #           OPENSEARCH_USER: ${{ secrets.OPENSEARCH_USER }}
 #           OPENSEARCH_PASSWORD: ${{ secrets.OPENSEARCH_PASSWORD }}
 #           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
 #           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 #           S3_BUCKET: ${{ secrets.S3_BUCKET }}
+#           AWS_BASTION_HOST: ${{ secrets.AWS_BASTION_HOST }}
+#           AWS_BASTION_USER: ${{ secrets.AWS_BASTION_USER }}
+#           AWS_BASTION_KEY_FILE: certs/aws-bastion-key-ci.pem
 #         run: pytest -m critical_path lib/app/critical_path --reruns 1
 
 #       - name: Upload allure results

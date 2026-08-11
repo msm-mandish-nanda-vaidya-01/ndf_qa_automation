@@ -27,11 +27,15 @@ module layer re-implements them — `e2e/` and `critical_path/` import the same
 
 ## Setup
 
+First time pulling this repo? Follow **[docs/setup/getting-started.md](docs/setup/getting-started.md)**
+— it covers creating `.env.dev`/`.env.stg`/`.env.prod`, per-subsidiary credentials, and
+the two `.pem` files (`certs/`) MongoDB/DocumentDB needs. Short version once you've done
+that once:
+
 ```bash
 python -m venv .venv && source .venv/Scripts/activate   # Windows bash
 make install
 make install-hooks
-cp .env.example .env.dev    # and .env.stg / .env.prod — then fill in real values
 ```
 
 `.env.dev` / `.env.stg` / `.env.prod` hold **secrets only** and are never committed;

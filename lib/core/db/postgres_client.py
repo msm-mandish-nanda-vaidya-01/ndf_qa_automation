@@ -1,7 +1,7 @@
 """Postgres client wrapper. Read-only by convention — QA verifies, it does not mutate.
 
 PLACEHOLDER — signatures only. Connection details come from ``get_config()`` — there
-are two separate databases, ``postgres_gdb`` and ``postgres_xdb``; never hardcode
+are two separate databases, ``postgres_gdb`` and ``postgres_repl``; never hardcode
 credentials here. A module picks whichever one it owns and passes that ``dsn``.
 """
 
@@ -14,7 +14,7 @@ class PostgresClient:
     def __init__(self, dsn: str | None = None) -> None:
         """Build a client. ``dsn`` defaults to ``get_config().postgres_gdb.dsn``.
 
-        Pass ``dsn=get_config().postgres_xdb.dsn`` explicitly to connect to XDB instead.
+        Pass ``dsn=get_config().postgres_repl.dsn`` explicitly to connect to REPL instead.
         """
         raise NotImplementedError("TODO: implement psycopg connection setup")
 
