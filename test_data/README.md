@@ -13,7 +13,7 @@ Resolved at runtime by `get_config().test_data_dir("etl/gdb")` from `ENV`,
 
 Rules:
 
-- **No credentials.** Usernames/passwords/tokens live in `.env` and CI secrets.
+- **No credentials.** Usernames/passwords/tokens live in `.env.<env>` and CI secrets.
 - Keep `expected` blocks minimal. Anything the BE returns is read from the BE
   result object at runtime, not restated here — otherwise the FE/DB layers stop
   validating against the BE and start validating against a hardcoded guess.

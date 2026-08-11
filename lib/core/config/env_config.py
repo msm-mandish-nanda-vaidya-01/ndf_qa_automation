@@ -1,9 +1,10 @@
 """Single source of truth for configuration.
 
 Secrets come from one dotenv file per environment — ``.env.dev`` / ``.env.stg`` /
-``.env.prod`` — selected by the environment being tested, layered over an optional
-shared ``.env`` base and under the real process environment (so CI secrets always win
-and CI needs no dotenv files at all). Non-secret values come from ``settings.yaml``,
+``.env.prod`` — selected by the environment being tested, and layered under the real
+process environment (so CI secrets always win and CI needs no dotenv files at all).
+There is no shared ``.env`` base; every value lives in its environment's own file, even
+if it's identical across all three. Non-secret values come from ``settings.yaml``,
 keyed by the same environment.
 
 Frontend URL and login (``FE_URL``/``FE_USERNAME``/``FE_PASSWORD``/``BE_API_TOKEN``)
@@ -12,14 +13,18 @@ dotenv file carries one set per entry in ``settings.yaml``'s ``defaults.subsidia
 (e.g. ``FE_URL_MJP``, ``FE_URL_KOR``, ``FE_URL_USA``), and ``get_config`` resolves only
 the active subsidiary's set into ``Config.credentials``.
 
+Postgres is two distinct databases, GDB and XDB, not one — ``POSTGRES_*`` is suffixed
+per database (``POSTGRES_HOST_GDB``, ``POSTGRES_HOST_XDB``, ...) and both resolve into
+``Config.postgres_gdb``/``Config.postgres_xdb`` unconditionally (unlike subsidiary
+credentials, a run doesn't pick one — modules choose whichever database they own).
+
 Lookup precedence, highest first:
 
 1. real process environment variables (CI secrets, ``ENV=stg make test``)
 2. ``.env.<env>``
-3. ``.env`` (optional, for values identical across all three environments)
 
 Nothing else in the codebase should read ``os.environ`` directly. Reading the dotenv
-files never mutates ``os.environ``, so two environments can be resolved in one process
+file never mutates ``os.environ``, so two environments can be resolved in one process
 without leaking values between them.
 """
 
@@ -41,7 +46,6 @@ TEST_DATA_ROOT = REPO_ROOT / "test_data"
 REPORTS_ROOT = REPO_ROOT / "reports"
 LOGS_ROOT = REPO_ROOT / "logs"
 
-BASE_ENV_FILE = REPO_ROOT / ".env"
 ENVIRONMENTS: tuple[str, ...] = ("dev", "stg", "prod")
 DEFAULT_ENV = "dev"
 
@@ -85,7 +89,7 @@ def _resolve_env(env: str | None) -> str:
     """Decide which environment this run targets, and validate it.
 
     Order: explicit CLI argument, then ``ENV`` from the process environment, then
-    ``ENV`` in the shared ``.env`` base file, then ``dev``.
+    ``dev``.
 
     Args:
         env: Environment passed explicitly by the CLI, or None.
@@ -96,20 +100,17 @@ def _resolve_env(env: str | None) -> str:
     Raises:
         ConfigError: If the resolved environment is not one of ``ENVIRONMENTS``.
     """
-    resolved = (
-        env or os.environ.get("ENV") or _read_dotenv(BASE_ENV_FILE).get("ENV") or DEFAULT_ENV
-    ).strip()
+    resolved = (env or os.environ.get("ENV") or DEFAULT_ENV).strip()
     if resolved not in ENVIRONMENTS:
         raise ConfigError(f"Unknown ENV '{resolved}'. Expected one of: {', '.join(ENVIRONMENTS)}")
     return resolved
 
 
 def _build_env_layers(env: str) -> dict[str, str]:
-    """Flatten the three secret sources into one lookup mapping for ``env``.
+    """Flatten the two secret sources into one lookup mapping for ``env``.
 
-    Applied lowest precedence first — shared ``.env``, then ``.env.<env>``, then the
-    real process environment — so CI secrets override files and per-environment files
-    override the shared base.
+    Applied lowest precedence first — ``.env.<env>``, then the real process
+    environment — so CI secrets always override the file.
 
     Args:
         env: The environment this run targets.
@@ -130,7 +131,6 @@ def _build_env_layers(env: str) -> dict[str, str]:
             f"Copy .env.example to .env.{env} and fill in real values."
         )
     layers: dict[str, str] = {}
-    layers.update(_read_dotenv(BASE_ENV_FILE))
     layers.update(per_env)
     layers.update(os.environ)
     return layers
@@ -194,7 +194,7 @@ class AwsConfig:
 
 @dataclass(frozen=True)
 class Credentials:
-    """Resolved for the run's active subsidiary — see ``_credential_key``."""
+    """Resolved for the run's active subsidiary — see ``_suffixed_key``."""
 
     fe_url: str
     fe_username: str
@@ -204,14 +204,20 @@ class Credentials:
 
 @dataclass(frozen=True)
 class Config:
-    """Resolved configuration for one run."""
+    """Resolved configuration for one run.
+
+    ``postgres_gdb``/``postgres_xdb`` are two distinct Postgres databases (GDB and
+    XDB), not a primary/replica pair — a module picks whichever one it's responsible
+    for, never both by default.
+    """
 
     env: str
     subsidiary: str
     data_set: str
     settings: dict[str, Any]
     credentials: Credentials
-    postgres: PostgresConfig
+    postgres_gdb: PostgresConfig
+    postgres_xdb: PostgresConfig
     mongo: MongoConfig
     opensearch: OpenSearchConfig
     aws: AwsConfig
@@ -304,14 +310,35 @@ def _resolve_subsidiary(
     return resolved
 
 
-def _credential_key(name: str, subsidiary: str) -> str:
-    """Build the per-subsidiary secret key, e.g. ``("FE_URL", "KOR") -> "FE_URL_KOR"``.
+def _suffixed_key(name: str, suffix: str) -> str:
+    """Build a suffixed secret key, e.g. ``("FE_URL", "KOR") -> "FE_URL_KOR"``.
 
-    Frontend URL/login differs per subsidiary (each logs into a separate country
-    domain — see docs/context/purchase_checker/xdb_cross_system_flow.md), so these
-    four credentials are suffixed per subsidiary in ``.env.<env>`` rather than global.
+    Two independent things in ``.env.<env>`` are split this way rather than global:
+    frontend URL/login (suffixed per subsidiary — each subsidiary logs into a separate
+    country domain, see docs/context/purchase_checker/xdb_cross_system_flow.md) and
+    Postgres connection details (suffixed per database — GDB and XDB are two distinct
+    Postgres instances, see ``PostgresConfig``/``Config.postgres_gdb``/``postgres_xdb``).
     """
-    return f"{name}_{subsidiary}"
+    return f"{name}_{suffix}"
+
+
+def _postgres_config(secrets: Mapping[str, str], db_name: str) -> PostgresConfig:
+    """Build the :class:`PostgresConfig` for one of the two Postgres databases.
+
+    Args:
+        secrets: Layered secrets for the active environment (see ``_build_env_layers``).
+        db_name: ``"GDB"`` or ``"XDB"`` — matches the ``.env.<env>`` key suffix.
+
+    Returns:
+        A :class:`PostgresConfig` built from that database's ``POSTGRES_*_<db_name>`` keys.
+    """
+    return PostgresConfig(
+        host=_optional(secrets, _suffixed_key("POSTGRES_HOST", db_name), "localhost"),
+        port=int(_optional(secrets, _suffixed_key("POSTGRES_PORT", db_name), "5432")),
+        database=_optional(secrets, _suffixed_key("POSTGRES_DB", db_name), db_name.lower()),
+        user=_optional(secrets, _suffixed_key("POSTGRES_USER", db_name)),
+        password=_optional(secrets, _suffixed_key("POSTGRES_PASSWORD", db_name)),
+    )
 
 
 @cache
@@ -330,7 +357,7 @@ def get_config(
         env: Target environment from the CLI; falls back to ``ENV``, then ``dev``.
         subsidiary: Subsidiary code from the CLI, e.g. ``"MJP"``; falls back to
             ``SUBSIDIARY``. Determines which per-subsidiary credential set (see
-            ``_credential_key``) fills ``credentials``.
+            ``_suffixed_key``) fills ``credentials``.
         data_set: ``"real"`` or ``"test"``; falls back to ``DATA_SET``.
 
     Returns:
@@ -352,18 +379,13 @@ def get_config(
         data_set=data_set or _optional(secrets, "DATA_SET", "test"),
         settings=settings,
         credentials=Credentials(
-            fe_url=_optional(secrets, _credential_key("FE_URL", resolved_subsidiary)),
-            fe_username=_optional(secrets, _credential_key("FE_USERNAME", resolved_subsidiary)),
-            fe_password=_optional(secrets, _credential_key("FE_PASSWORD", resolved_subsidiary)),
-            be_api_token=_optional(secrets, _credential_key("BE_API_TOKEN", resolved_subsidiary)),
+            fe_url=_optional(secrets, _suffixed_key("FE_URL", resolved_subsidiary)),
+            fe_username=_optional(secrets, _suffixed_key("FE_USERNAME", resolved_subsidiary)),
+            fe_password=_optional(secrets, _suffixed_key("FE_PASSWORD", resolved_subsidiary)),
+            be_api_token=_optional(secrets, _suffixed_key("BE_API_TOKEN", resolved_subsidiary)),
         ),
-        postgres=PostgresConfig(
-            host=_optional(secrets, "POSTGRES_HOST", "localhost"),
-            port=int(_optional(secrets, "POSTGRES_PORT", "5432")),
-            database=_optional(secrets, "POSTGRES_DB", "ndf"),
-            user=_optional(secrets, "POSTGRES_USER"),
-            password=_optional(secrets, "POSTGRES_PASSWORD"),
-        ),
+        postgres_gdb=_postgres_config(secrets, "GDB"),
+        postgres_xdb=_postgres_config(secrets, "XDB"),
         mongo=MongoConfig(
             uri=_optional(secrets, "MONGO_URI", "mongodb://localhost:27017"),
             database=_optional(secrets, "MONGO_DB", "ndf"),

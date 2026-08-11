@@ -31,12 +31,12 @@ module layer re-implements them — `e2e/` and `critical_path/` import the same
 python -m venv .venv && source .venv/Scripts/activate   # Windows bash
 make install
 make install-hooks
-cp .env.example .env        # then fill in real values
+cp .env.example .env.dev    # and .env.stg / .env.prod — then fill in real values
 ```
 
-`.env` holds **secrets only** and is never committed. Non-secret config — URLs,
-timeouts, feature flags — goes in `lib/core/config/settings.yaml`, keyed by
-environment.
+`.env.dev` / `.env.stg` / `.env.prod` hold **secrets only** and are never committed;
+`env_config.py` picks the file matching `ENV`. Non-secret config — URLs, timeouts,
+feature flags — goes in `lib/core/config/settings.yaml`, keyed by environment.
 
 ## Running
 

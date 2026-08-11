@@ -54,9 +54,9 @@ def test_fe_matches_be(logged_in_page, config, be_result):
 @pytest.mark.module
 @pytest.mark.db
 @pytest.mark.postgres
-def test_postgres_state(postgres, config, be_result):
-    """Postgres holds the persisted job + records."""
-    raise NotImplementedError("TODO: call postgres_checks.verify(postgres, config, be_result)")
+def test_postgres_state(postgres_gdb, config, be_result):
+    """The GDB database holds the persisted job + records."""
+    raise NotImplementedError("TODO: call postgres_checks.verify(postgres_gdb, config, be_result)")
 
 
 @pytest.mark.module

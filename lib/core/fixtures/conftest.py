@@ -17,7 +17,7 @@ pytest_plugins = [
 ]
 
 
-# --- CLI options: let a run target an env/subsidiary/data set without editing .env ---
+# --- CLI options: let a run target an env/subsidiary/data set without editing .env.<env> ---
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:

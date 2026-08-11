@@ -5,7 +5,7 @@ guessing — and if genuinely nothing fits, ask rather than inventing a new top-
 
 ```
 ndf_qa_automation/
-├── .env                          # actual secrets (gitignored, never committed)
+├── .env.dev, .env.stg, .env.prod  # actual secrets per environment (gitignored, never committed)
 ├── .env.example                  # template with dummy values, committed
 ├── .gitignore
 ├── .pre-commit-config.yaml       # black/ruff/isort hooks
@@ -41,7 +41,7 @@ ndf_qa_automation/
 │   │   ├── aws/s3_client.py
 │   │   ├── fixtures/                 # pytest fixtures (conftest.py, fe/be/db fixtures)
 │   │   └── config/
-│   │       ├── env_config.py         # reads secrets from os.environ (via .env + python-dotenv)
+│   │       ├── env_config.py         # reads secrets from .env.<env> (python-dotenv) + os.environ
 │   │       ├── settings.yaml         # non-secret: URLs, timeouts, env/subsidiary lists, flags
 │   │       └── logging_config.py     # sets up console + per-run file handler
 │   │

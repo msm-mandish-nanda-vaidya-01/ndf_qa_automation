@@ -1,4 +1,4 @@
-"""Datastore fixtures: postgres, mongo, opensearch, s3.
+"""Datastore fixtures: postgres (GDB + XDB), mongo, opensearch, s3.
 
 Session-scoped and lazily connected — a test that never touches Mongo should not
 pay for a Mongo connection.
@@ -12,9 +12,21 @@ import pytest
 
 
 @pytest.fixture(scope="session")
-def postgres(config):
-    """Connected ``PostgresClient``, closed at session end. Fails fast on health check."""
-    raise NotImplementedError("TODO: yield PostgresClient(config.postgres.dsn)")
+def postgres_gdb(config):
+    """Connected ``PostgresClient`` for the GDB database, closed at session end.
+
+    Fails fast on health check.
+    """
+    raise NotImplementedError("TODO: yield PostgresClient(config.postgres_gdb.dsn)")
+
+
+@pytest.fixture(scope="session")
+def postgres_xdb(config):
+    """Connected ``PostgresClient`` for the XDB database, closed at session end.
+
+    Fails fast on health check.
+    """
+    raise NotImplementedError("TODO: yield PostgresClient(config.postgres_xdb.dsn)")
 
 
 @pytest.fixture(scope="session")
@@ -36,6 +48,6 @@ def s3(config):
 
 
 @pytest.fixture(scope="session")
-def stores(postgres, mongo, opensearch, s3):
-    """All four clients bundled — convenient for ``db/*_checks.py`` entrypoints."""
-    raise NotImplementedError("TODO: return a simple namespace of the four clients")
+def stores(postgres_gdb, postgres_xdb, mongo, opensearch, s3):
+    """All five clients bundled — convenient for ``db/*_checks.py`` entrypoints."""
+    raise NotImplementedError("TODO: return a simple namespace of the five clients")

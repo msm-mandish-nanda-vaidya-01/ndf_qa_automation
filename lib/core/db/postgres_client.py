@@ -1,7 +1,8 @@
 """Postgres client wrapper. Read-only by convention — QA verifies, it does not mutate.
 
-PLACEHOLDER — signatures only. Connection details come from
-``get_config().postgres``; never hardcode credentials here.
+PLACEHOLDER — signatures only. Connection details come from ``get_config()`` — there
+are two separate databases, ``postgres_gdb`` and ``postgres_xdb``; never hardcode
+credentials here. A module picks whichever one it owns and passes that ``dsn``.
 """
 
 from __future__ import annotations
@@ -11,7 +12,10 @@ from typing import Any, Sequence
 
 class PostgresClient:
     def __init__(self, dsn: str | None = None) -> None:
-        """Build a client. ``dsn`` defaults to ``get_config().postgres.dsn``."""
+        """Build a client. ``dsn`` defaults to ``get_config().postgres_gdb.dsn``.
+
+        Pass ``dsn=get_config().postgres_xdb.dsn`` explicitly to connect to XDB instead.
+        """
         raise NotImplementedError("TODO: implement psycopg connection setup")
 
     # --- lifecycle ---

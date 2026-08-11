@@ -54,9 +54,12 @@
 #           FE_USERNAME: ${{ secrets.FE_USERNAME }}
 #           FE_PASSWORD: ${{ secrets.FE_PASSWORD }}
 #           BE_API_TOKEN: ${{ secrets.BE_API_TOKEN }}
-#           POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
-#           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
-#           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+#           POSTGRES_HOST_GDB: ${{ secrets.POSTGRES_HOST_GDB }}
+#           POSTGRES_USER_GDB: ${{ secrets.POSTGRES_USER_GDB }}
+#           POSTGRES_PASSWORD_GDB: ${{ secrets.POSTGRES_PASSWORD_GDB }}
+#           POSTGRES_HOST_XDB: ${{ secrets.POSTGRES_HOST_XDB }}
+#           POSTGRES_USER_XDB: ${{ secrets.POSTGRES_USER_XDB }}
+#           POSTGRES_PASSWORD_XDB: ${{ secrets.POSTGRES_PASSWORD_XDB }}
 #           MONGO_URI: ${{ secrets.MONGO_URI }}
 #           OPENSEARCH_HOST: ${{ secrets.OPENSEARCH_HOST }}
 #           OPENSEARCH_USER: ${{ secrets.OPENSEARCH_USER }}

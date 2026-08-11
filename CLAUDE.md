@@ -109,7 +109,8 @@ connection limits:
   elsewhere, read it from `lib/core/config/settings.yaml`).
 - Config precedence: non-secret settings (URLs, timeouts, feature flags, env/subsidiary lists)
   live in `lib/core/config/settings.yaml`. Secrets (DB creds, AWS SSO profile, NDF API
-  auth) come from `.env` via `env_config.py` — never hardcode either into module code.
+  auth) come from `.env.<env>` (`.env.dev` / `.env.stg` / `.env.prod`) via `env_config.py`
+  — never hardcode either into module code.
 
 ## Test data
 
