@@ -31,6 +31,14 @@ different from the separate `ndf-3-test-files-creation` skill, which produces th
 3-file GDB/Spec Grouping/Type Grouping set used as *pipeline input* — that's upstream of this
 automation repo, not the same thing as a module's test-data fixtures here.)
 
+For any module scaffolded via the `new-module-scaffold` skill, this schema decision — plus the
+full Happy path / Error case / Edge case scenario list and which test-data file each scenario
+maps to — lives in that module's own `PLAN.md` (`lib/app/modules/<domain>/<module_name>/PLAN.md`),
+written and confirmed with the user before any code or test-data file exists. Check there first
+for a module that has one. Modules that predate this workflow (e.g. `etl/gdb`,
+`purchase_checker/login`) don't have a `PLAN.md` — their schema is documented in `be.py`'s
+docstring instead, per the pre-existing convention below.
+
 ## Where the "expected result" comes from
 
 A test case needs two things: input to feed `be.py`, and something to check the outcome

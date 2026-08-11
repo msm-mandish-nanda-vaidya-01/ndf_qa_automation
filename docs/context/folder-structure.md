@@ -64,6 +64,9 @@ ndf_qa_automation/
 │       │   └── purchase_checker/     # user-facing search/cross-reference/order flow modules
 │       │       └── login/
 │       │           └── (same shape)
+│       │   # modules scaffolded via new-module-scaffold also get a PLAN.md alongside
+│       │   # orchestrator.py — scenarios (Happy/Error/Edge) + test-data schema, confirmed
+│       │   # with the user before the rest of the module was generated
 │       │
 │       ├── e2e/orchestrator.py         # imports be/fe/db across multiple modules, full journeys
 │       └── critical_path/orchestrator.py  # imports a smoke-level subset, still checks persisted state where critical
@@ -84,7 +87,9 @@ ndf_qa_automation/
 - **New shared logic** (used by 2+ modules) → `lib/core/utils/` or `lib/core/db/`, never
   duplicated inside a module. Check there first.
 - **New module** → `lib/app/modules/<domain>/<module>/`, scaffolded via the
-  `new-module-scaffold` skill so the orchestrator/be/fe/db shape and docstrings stay consistent.
+  `new-module-scaffold` skill so the orchestrator/be/fe/db shape and docstrings stay
+  consistent. That skill is plan-first — it writes and confirms a `PLAN.md` (scenarios +
+  test-data schema) before generating any code.
 - **New test data** → under `test_data/`, following `test-data-conventions.md` exactly — don't
   invent a different nesting order (e.g. subsidiary before env).
 - **Cross-module e2e/critical-path logic** → `lib/app/e2e/` or `lib/app/critical_path/`, which

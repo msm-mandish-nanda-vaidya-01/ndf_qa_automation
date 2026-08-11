@@ -34,8 +34,11 @@ adding a function, every time, not just for new modules:
 5. Read `docs/context/test-data-conventions.md` if you're adding or loading test data.
 6. Read `docs/context/folder-structure.md` if you're unsure where a new file belongs.
 7. If you're scaffolding a brand-new module, use the `new-module-scaffold` skill
-   (`.claude/skills/new-module-scaffold/SKILL.md`) instead of hand-rolling the folder — it
-   generates orchestrator/be/fe/db/test_data with the conventions below already applied.
+   (`.claude/skills/new-module-scaffold/SKILL.md`) instead of hand-rolling the folder. It's
+   plan-first: ask which module, plan its Happy path / Error case / Edge case scenarios and
+   test-data schema into a `PLAN.md`, confirm that with the user, and only then generate
+   orchestrator/be/fe/db and matching test-data skeletons — never generate code for a new
+   module before that plan exists and is confirmed.
 
 If, after this pass, you're still about to duplicate something that's 80%+ similar to existing
 code, stop and say so explicitly rather than silently writing the duplicate — either the
