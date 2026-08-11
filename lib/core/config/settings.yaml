@@ -1,9 +1,16 @@
 # Non-secret configuration only: URLs, timeouts, feature flags.
-# Credentials, tokens and hosts-with-credentials belong in .env / CI secrets.
+# Credentials, tokens and hosts-with-credentials belong in .env.<env> / CI secrets.
+# Frontend URL is per-subsidiary and secret-file-scoped -> FE_URL_<SUBSIDIARY> in
+# .env.<env>, not here (subsidiaries log into separate country domains).
 #
 # `defaults` is deep-merged with the selected environment block.
+# Environment keys must match the .env.<env> file names: dev, stg, prod.
 
 defaults:
+  # Canonical subsidiary list. Add new subsidiaries here only — never hardcode a
+  # subsidiary list elsewhere (CLI, module code, etc).
+  subsidiaries: [MJP, KOR, USA]
+
   timeouts:
     page_load: 30
     element: 15
@@ -33,21 +40,31 @@ defaults:
 environments:
   dev:
     urls:
-      fe_base: https://dev.example.internal
       be_base: https://api-dev.example.internal
       be_etl: https://api-dev.example.internal/etl
       be_purchase_checker: https://api-dev.example.internal/purchase-checker
     features:
       strict_db_row_count: false
 
-  staging:
+  stg:
     urls:
-      fe_base: https://staging.example.internal
-      be_base: https://api-staging.example.internal
-      be_etl: https://api-staging.example.internal/etl
-      be_purchase_checker: https://api-staging.example.internal/purchase-checker
+      be_base: https://api-stg.example.internal
+      be_etl: https://api-stg.example.internal/etl
+      be_purchase_checker: https://api-stg.example.internal/purchase-checker
     timeouts:
       eventual_consistency: 120
+    features:
+      fe_headless: true
+      strict_db_row_count: true
+
+  # Full be->fe->db flow runs here too — prod is not read-only.
+  prod:
+    urls:
+      be_base: https://api.example.internal
+      be_etl: https://api.example.internal/etl
+      be_purchase_checker: https://api.example.internal/purchase-checker
+    timeouts:
+      eventual_consistency: 180
     features:
       fe_headless: true
       strict_db_row_count: true

@@ -1,6 +1,6 @@
 """CLI entrypoint. Wraps pytest so runs are reproducible and self-documenting.
 
-    python -m lib.app.main.main --suite critical-path --env staging
+    python -m lib.app.main.main --suite critical-path --env stg
     python -m lib.app.main.main --suite module --module etl/gdb --data-set real
     python -m lib.app.main.main --suite e2e --env dev --report
 
@@ -29,7 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     Options to implement:
       --suite {module,e2e,critical-path,all}   which suite to run (required)
       --module PATH                            e.g. etl/gdb; required for --suite module
-      --env {dev,staging}                      target environment      [default: $ENV]
+      --env {dev,stg,prod}                     target environment      [default: $ENV]
       --subsidiary NAME                        e.g. subsidiary_001     [default: $SUBSIDIARY]
       --data-set {real,test}                   test-data variant       [default: $DATA_SET]
       -m, --markers EXPR                       extra pytest marker expression

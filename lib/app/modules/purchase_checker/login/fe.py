@@ -20,7 +20,7 @@ ROLE_LABEL = "[data-testid='user-role']"  # TODO: confirm selector
 
 def open_login_page(page, config) -> None:
     """Navigate to the login page and wait for the form."""
-    raise NotImplementedError("TODO: navigate to urls.fe_base login route")
+    raise NotImplementedError("TODO: navigate to config.credentials.fe_url login route")
 
 
 def submit_credentials(page, username: str, password: str) -> None:
