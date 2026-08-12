@@ -1,11 +1,10 @@
 {
-  "_comment": "BE-only scenario. The browser always submits the country belonging to the locale page it is on, so a country override cannot be expressed through the UI — the FE would perform an ordinary valid login and report a false failure. fe_applicable is false so the FE layer records a skip instead. See PLAN.md section 5.",
+  "_comment": "Cross-subsidiary scenario, exercised through both layers by different routes. BE: the same credentials posted with 1_country set to another subsidiary. FE: the browser cannot override that field, so the equivalent — and the only route a real user has — is to drive that country's locale login page with this subsidiary's credentials (fe.config_for_country). expected.error_message stays null because any error text would render in the other locale's language. See PLAN.md section 5.",
   "name": "S1_mismatched_country",
   "description": "Valid USA credentials submitted with country='mjp'. A success here would be a cross-subsidiary credential leak.",
   "login_id": null,
   "password": null,
   "country": "mjp",
-  "fe_applicable": false,
   "expect_success": false,
   "expected": {
     "_comment": "Only what the BE cannot tell us. Identity and session shape come from LoginResult. error_message is the locale-specific text the FE renders; null means assert only that the login was rejected.",

@@ -113,11 +113,12 @@ async def _run_test_case(
         logger.error("BE failed for %s: %s", test_case.name, exc)
         result["errors"].append({"stage": "be", "error": str(exc)})
 
-    # Some scenarios are not expressible through the UI at all — a `country` override, for
-    # instance, is a form field the BE sets directly, whereas the browser always submits
-    # the country belonging to the locale page it is on. Running the FE for those would
-    # silently perform an ordinary valid login and report a false failure. Such a case
-    # declares itself BE-only and is recorded as skipped, not failed.
+    # Escape hatch for a scenario with no UI form at all, kept because the test-data schema
+    # documents it (PLAN.md §5) — running the FE for such a case would assert against a
+    # different scenario than the one intended and report a false failure. No case
+    # currently sets it: `country` overrides used to, until fe.config_for_country expressed
+    # them as "drive the other country's login page", which is both testable and the only
+    # route a real user has. Such a case is recorded as skipped, not failed.
     if not test_case.get("fe_applicable", True):
         reason = "scenario is not expressible through the UI (declared fe_applicable=false)"
         logger.info("FE: skipping %s — %s", test_case.name, reason)

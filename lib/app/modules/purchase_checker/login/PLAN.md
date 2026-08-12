@@ -92,17 +92,28 @@ any file is generated:
 | `description` | string | what this case exercises, for the report |
 | `login_id` | string \| null | login id override. `null` → use `FE_USERNAME_<SUB>` from `.env.<env>` |
 | `password` | string \| null | password override. `null` → use `FE_PASSWORD_<SUB>` from `.env.<env>` |
-| `country` | string \| null | `1_country` override. `null` → `subsidiary_cd.lower()` |
+| `country` | string \| null | `1_country` override for the BE, and the subsidiary whose locale login page the FE drives. `null` → `subsidiary_cd.lower()`, i.e. this run's own pages |
 | `fe_applicable` | bool | Optional, defaults `true`. `false` marks a scenario that cannot be expressed through the UI, so the FE layer records a skip instead of running. See the note below |
 | `expect_success` | bool | drives `be.login` vs `be.login_expect_failure`, and whether FE expects the heading or the error |
 | `expected.error_message` | string \| null | FE error text for a rejected login. Locale-specific, hence authored per subsidiary. `null` → the FE asserts only that no session cookie was issued |
 
-**On `fe_applicable`:** a `country` override is a BE-only concept. The browser always
-submits the country belonging to the locale page it is on (`/ja/` → `mjp`), so there is no
-way to drive a mismatched country through the UI — the FE would simply perform an ordinary
-valid login and report a false failure. `S1_mismatched_country` therefore sets
-`fe_applicable: false`. This was found by running the suite after the negative assertions
-were made real; the earlier vacuous assertion had hidden it.
+**On `country` and the two layers' routes to it.** The browser cannot set `1_country`: it
+submits the country belonging to the locale page it is on (`/ja/` → `mjp`). That is a
+difference in *route*, not in coverage, so the FE expresses the same scenario by driving
+the overridden country's locale login page (`/ko/login`) with this run's credentials —
+`fe.config_for_country` resolves that page from `FE_URL_<SUB>`, reusing the existing
+country↔subsidiary mapping rather than adding one. This is also the only version of the
+scenario a real user can reach, so a leak found here is the stronger finding.
+
+Credentials always come from the run's own subsidiary; only the pages change. Any error
+text on such a page renders in the *other* locale's language, which is why
+`expected.error_message` is `null` for this case and the FE asserts the cookie instead.
+
+**On `fe_applicable`:** an escape hatch for a scenario with no UI form at all. **No current
+scenario uses it** — `S1_mismatched_country` did until the FE route above was implemented.
+It is kept in the schema and honoured by the orchestrator for future BE-only scenarios; an
+earlier version of this plan cited the country override as its example, which is no longer
+accurate.
 
 **No real credentials in test data** (`test_data/README.md`: *"Usernames/passwords/tokens
 live in `.env.<env>` and CI secrets"*). Valid credentials are always `null` here and come
@@ -135,7 +146,7 @@ data-character split (production-like vs. synthetic edge case), not this table's
 
 | File | Description | Expected outcome |
 | --- | --- | --- |
-| `test/S1_mismatched_country.json` | Valid credentials for this subsidiary, `1_country` set to a different one (MJP→kor, KOR→usa, USA→mjp) | Rejected — credentials must not authenticate across subsidiary scopes. A pass here would be a cross-tenant leak |
+| `test/S1_mismatched_country.json` | Valid credentials for this subsidiary, `1_country` set to a different one (MJP→kor, KOR→usa, USA→mjp). BE posts the overridden field; FE signs in on that country's locale login page | Rejected by both layers — credentials must not authenticate across subsidiary scopes. A pass here would be a cross-tenant leak |
 | `test/S1_overlong_login_id.json` | 303-character login id | Rejected cleanly — not a 5xx, and not a truncated match |
 | `test/S1_sql_injection_login_id.json` | `' OR '1'='1` in both fields | Rejected, never authenticated. Security regression guard |
 

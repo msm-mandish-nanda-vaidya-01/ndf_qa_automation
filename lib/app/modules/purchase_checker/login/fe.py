@@ -5,6 +5,12 @@ performed also works through the UI. Every assertion that *can* be validated aga
 :class:`~lib.app.modules.purchase_checker.login.be.LoginResult` is; see ``PLAN.md`` §4 for
 which ones can't and why.
 
+One scenario reaches the UI by a different route than the BE. ``1_country`` is a field the
+BE sets directly and the browser cannot; its UI equivalent is to drive *another*
+subsidiary's locale login page with this run's credentials — see
+:func:`config_for_country`. This module therefore resolves which pages to drive from the
+test case, while the credentials submitted always come from the run's own config.
+
 The one thing that deliberately is **not** compared is the token value. The browser
 authenticates in its own session and receives its own ``GACCESSTOKENKEY``, so a value
 match would be wrong rather than stricter. What must match is the cookie's *shape* —
@@ -29,7 +35,7 @@ from urllib.parse import urlsplit
 from playwright.async_api import Page
 
 from lib.app.modules.purchase_checker.login.be import ACCESS_TOKEN_COOKIE, LoginResult
-from lib.core.config.env_config import Config
+from lib.core.config.env_config import Config, get_config
 from lib.core.utils import url_helper
 
 logger = logging.getLogger(__name__)
@@ -49,6 +55,44 @@ PASSWORD_INPUT = "#password"
 SUBMIT_BUTTON = ".style_login_btn__0YZb9"
 # Heading that only renders once authenticated — the success signal for the whole flow.
 SUCCESS_HEADING = "Purchase Checker"
+
+
+def config_for_country(config: Config, country: str) -> Config:
+    """Resolve the configuration whose ``FE_URL`` serves ``country``'s login pages.
+
+    Why this exists: ``1_country`` is a form field ``be.py`` sets directly, and the browser
+    has no equivalent control — it submits the country belonging to the locale page it is
+    on. The UI equivalent of a country override is therefore not a different field value
+    but a **different page**: driving another subsidiary's locale login page while
+    submitting this run's credentials. That is also the only version of the scenario a real
+    user could reach, which makes it the one worth asserting — a cross-subsidiary
+    credential leak that only reproduces through a hand-built POST is a weaker finding than
+    one reachable at ``/ko/login``.
+
+    The mapping is the same one ``be.py`` uses in reverse: ``1_country`` is
+    ``subsidiary_cd.lower()``, so a country string is a subsidiary code and
+    ``get_config`` resolves that subsidiary's ``FE_URL_<SUB>``. No subsidiary-to-URL map is
+    introduced here — there is still exactly one, in ``.env.<env>``.
+
+    Args:
+        config: The run's resolved configuration. Returned unchanged when ``country``
+            names the run's own subsidiary, so the ordinary path costs nothing.
+        country: A ``1_country`` value from a test case, e.g. ``"kor"``. Case-insensitive.
+
+    Returns:
+        The :class:`Config` whose ``credentials.fe_url`` points at that country's pages.
+        Its credentials belong to *that* subsidiary and must not be submitted — callers
+        take the login id and password from the run's own config.
+
+    Raises:
+        ConfigError: If ``country`` is not one of ``settings.yaml``'s
+            ``defaults.subsidiaries``. Failing loudly beats silently testing the run's own
+            locale, which would turn this scenario back into an ordinary valid login.
+    """
+    subsidiary_cd = country.strip().upper()
+    if subsidiary_cd == config.subsidiary:
+        return config
+    return get_config(env=config.env, subsidiary=subsidiary_cd, data_set=config.data_set)
 
 
 def login_link_selector(config: Config) -> str:
@@ -307,11 +351,18 @@ async def assert_matches(
     and asserts the UI agrees. Returns what it observed regardless of outcome so a
     passing run still carries evidence in the report.
 
+    A ``country`` override redirects only *which pages are driven*, never whose credentials
+    are submitted: the browser is pointed at that country's locale login page (see
+    :func:`config_for_country`) while the run's own login id and password are entered. That
+    is the UI form of the cross-subsidiary check — one subsidiary's user attempting to sign
+    in on another subsidiary's site.
+
     Args:
         page: A Playwright page with a fresh, unauthenticated context.
-        config: The resolved run configuration.
-        test_case: A parsed test case; reads ``expect_success``, ``password`` and
-            ``expected.error_message``. See ``PLAN.md`` §5.
+        config: The resolved run configuration. Always the source of the submitted
+            credentials, including when the case drives another country's pages.
+        test_case: A parsed test case; reads ``expect_success``, ``password``, ``country``
+            and ``expected.error_message``. See ``PLAN.md`` §5.
         be_result: The BE layer's result for this same test case, used as the expected
             value wherever it can be.
 
@@ -322,9 +373,19 @@ async def assert_matches(
     Raises:
         AssertionError: If the UI outcome contradicts the scenario.
         ValueError: If the configured FE URL has no locale segment.
+        ConfigError: If the case's ``country`` is not a configured subsidiary.
         playwright.async_api.Error: On a navigation or interaction failure.
     """
-    await open_login_page(page, config)
+    country = test_case.get("country")
+    page_config = config if country is None else config_for_country(config, country)
+    if page_config is not config:
+        logger.info(
+            "FE: driving %s's login page with %s credentials (country override '%s')",
+            page_config.subsidiary,
+            config.subsidiary,
+            country,
+        )
+    await open_login_page(page, page_config)
     # The login id is taken from be_result so both layers provably submit the same one.
     # The password can't be: LoginResult deliberately never carries it, so a case that
     # overrides the password (every wrong-password scenario) is read from the test data.
