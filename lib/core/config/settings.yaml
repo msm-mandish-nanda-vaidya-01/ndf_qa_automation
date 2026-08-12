@@ -31,6 +31,10 @@ defaults:
     verify_s3: true
     verify_opensearch: true
     strict_db_row_count: false
+    # Render reports/allure-results into an HTML site at the end of every pytest session.
+    # Needs the external `allure` commandline; when it's absent the run still passes and
+    # logs a WARNING with the manual command. Set false to skip the attempt entirely.
+    auto_generate_allure_report: true
 
   browser:
     name: chromium
@@ -43,6 +47,12 @@ environments:
       be_base: https://api-dev.example.internal
       be_etl: https://api-dev.example.internal/etl
       be_purchase_checker: https://api-dev.example.internal/purchase-checker
+    # Next.js server-action ids for the apps under test, read via Config.next_action().
+    # Not secret, but build-coupled: every deploy of the target app regenerates these,
+    # so a sudden 404/400 from a be.py server-action call means re-capture the id from
+    # the browser's network tab rather than a code bug.
+    next_actions:
+      purchase_checker_login: e4e2d05fb6115be3d8d3d511e435a654f864daad
     features:
       strict_db_row_count: false
 

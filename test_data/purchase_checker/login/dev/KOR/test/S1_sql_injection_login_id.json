@@ -1,0 +1,13 @@
+{
+  "_comment": "Synthetic negative-case data. Real credentials are never stored here — a null login_id/password means 'use FE_USERNAME_<SUB>/FE_PASSWORD_<SUB> from .env.<env>'. See lib/app/modules/purchase_checker/login/PLAN.md.",
+  "name": "S1_sql_injection_login_id",
+  "description": "Classic tautology payload in both fields; must be rejected, never authenticated. Security regression guard.",
+  "login_id": "' OR '1'='1",
+  "password": "' OR '1'='1",
+  "country": null,
+  "expect_success": false,
+  "expected": {
+    "_comment": "Only what the BE cannot tell us. Identity and session shape come from LoginResult. error_message is the locale-specific text the FE renders; null means assert only that the login was rejected.",
+    "error_message": null
+  }
+}

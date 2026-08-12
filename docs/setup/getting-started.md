@@ -98,13 +98,21 @@ hand-editing `lib/core/config/env_config.py`.
 
 ## 6. Run something
 
+`purchase_checker/login` is the only module implemented end to end so far, so start
+there. The `make` targets below are documented in the `Makefile`, but `make` isn't
+present on every dev machine — the `pytest` form always works:
+
 ```bash
-make test-critical                  # smoke, fastest feedback
-make test-module M=etl/gdb          # one module
-make cli ARGS="--suite e2e"         # via the CLI entrypoint
+python -m pytest -m module lib/app/modules/purchase_checker/login \
+    --env dev --subsidiary MJP --data-set test
 ```
 
-See the main `README.md` for the full command reference and `CLAUDE.md` /
+A bare `python -m pytest` currently reports 1 pass and 13 errors: `etl/gdb`, `e2e` and
+`critical_path` are still signature-only placeholders. That's expected, not a broken
+install.
+
+See **[running-tests.md](running-tests.md)** for the full command reference, every
+parameter you can change, and how to view the reports — and `CLAUDE.md` /
 `docs/context/` for how the codebase itself is organized.
 
 ## Troubleshooting

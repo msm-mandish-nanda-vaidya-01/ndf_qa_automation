@@ -77,6 +77,25 @@ Tracked here so nothing gets lost. Don't guess past these — ask or wait for th
 - **XDB Cross data-layer wiring — unconfirmed in the source doc itself.** Which of Postgres,
   MongoDB, S3, OpenSearch/GDB actually backs which module's `db/*_checks.py` is unresolved,
   specifically MongoDB's role and how the two ETL processes (XDB, GDB) feed Postgres/OpenSearch.
+  Consequence so far: **`purchase_checker/login` ships as BE+FE only** — it has no `db/`
+  directory, and `lib/app/e2e/orchestrator.py` / `lib/app/critical_path/orchestrator.py` had
+  their `login.db.*` imports removed accordingly. Restore them together with the directory
+  once the wiring is confirmed.
+- **`xdb_cross_system_flow.md` §1 is contradicted by the live login contract.** Two specifics,
+  found while building `purchase_checker/login` against `stg01.cross-dev.misumi-ec.com`:
+  - It records the subsidiary input as `JPN / KOR / USA`. The wire value is actually the
+    lowercased repo subsidiary code — `mjp` / `kor` / `usa` — sent as the `1_country` form
+    field. There is no `JPN`.
+  - It records the output as "a session containing `sub` (user_code), `subsidiary_code`,
+    `language_code`". What the app actually returns is an **opaque `GACCESSTOKENKEY` cookie**
+    in a `Set-Cookie` header — not a decodable session object. Those three fields cannot be
+    read from it, so `LoginResult` does not carry them. Any downstream module's design that
+    assumed it could read `sub`/`subsidiary_code`/`language_code` from the login result needs
+    revisiting.
+
+  Login is also a **Next.js server action**, not a REST endpoint: it is selected by a
+  build-generated `next-action` header id, which lives in `settings.yaml` per environment and
+  regenerates on every deploy of the app under test.
 - **BOM upload route — unconfirmed whether `save-user` call site 1 fires.** Affects whether an
   `excel-upload`-based module needs to assert a dataset-reservation call at all.
 - **`xdb_cross_system_flow.md` numbering skips section 10** (goes `## 9` → `## 11`) in the

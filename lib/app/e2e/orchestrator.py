@@ -19,10 +19,11 @@ from lib.app.modules.etl.gdb.db import postgres_checks as gdb_postgres
 from lib.app.modules.etl.gdb.db import s3_checks as gdb_s3
 from lib.app.modules.purchase_checker.login import be as login_be
 from lib.app.modules.purchase_checker.login import fe as login_fe
-from lib.app.modules.purchase_checker.login.db import mongo_checks as login_mongo
-from lib.app.modules.purchase_checker.login.db import opensearch_checks as login_opensearch
-from lib.app.modules.purchase_checker.login.db import postgres_checks as login_postgres
-from lib.app.modules.purchase_checker.login.db import s3_checks as login_s3
+
+# purchase_checker/login has no db/* layer — the XDB Cross data-layer wiring is
+# unconfirmed (see docs/context/module-workflows.md, "Known gaps"), so there are no
+# login_postgres/mongo/opensearch/s3 modules to import. Restore them here only once that
+# wiring is confirmed and the module actually grows a db/ directory.
 
 pytestmark = pytest.mark.e2e
 
@@ -42,15 +43,17 @@ def test_login_then_gdb_etl_full_flow(
     stores,
     test_data,
 ):
-    """Full chain: log in -> validate UI -> verify session state -> run GDB ETL ->
-    validate UI against the ETL result -> verify persisted state in all four stores.
+    """Full chain: log in -> validate UI -> run GDB ETL -> validate UI against the ETL
+    result -> verify persisted state in all four stores.
 
     Sequence to implement:
-      1. login_fe.validate(page, config, e2e_session)
-      2. login_postgres/mongo/opensearch/s3.verify(..., e2e_session)
-      3. etl_result = gdb_be.run(etl_client, case)
-      4. gdb_fe.validate(page, config, etl_result)
-      5. gdb_postgres/mongo/opensearch/s3.verify(..., etl_result)
+      1. login_fe.assert_matches(page, config, case, e2e_session)
+      2. etl_result = gdb_be.run(etl_client, case)
+      3. gdb_fe.validate(page, config, etl_result)
+      4. gdb_postgres/mongo/opensearch/s3.verify(..., etl_result)
+
+    Login has no persisted-state step: its db/* layer is unconfirmed (see the import
+    note above), so this flow asserts the session via the UI and the issued cookie only.
     """
     raise NotImplementedError("TODO: implement the cross-module sequence")
 

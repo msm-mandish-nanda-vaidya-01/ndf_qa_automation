@@ -1,0 +1,13 @@
+{
+  "_comment": "Happy path. Every field is null on purpose: the valid credentials live in FE_USERNAME_<SUB>/FE_PASSWORD_<SUB> in .env.<env> and must never be copied here (test_data/README.md). This is the only case that persists BE_API_TOKEN_<SUB>.",
+  "name": "S1_valid_login",
+  "description": "Real subsidiary credentials from .env.dev with the matching country code.",
+  "login_id": null,
+  "password": null,
+  "country": null,
+  "expect_success": true,
+  "expected": {
+    "_comment": "Only what the BE cannot tell us. Identity and session shape come from LoginResult. error_message is the locale-specific text the FE renders; null means assert only that the login was rejected.",
+    "error_message": null
+  }
+}

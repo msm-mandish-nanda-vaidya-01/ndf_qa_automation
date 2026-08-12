@@ -44,20 +44,37 @@ feature flags — goes in `lib/core/config/settings.yaml`, keyed by environment.
 
 ## Running
 
-```bash
-make test-critical                  # smoke
-make test-e2e                       # full cross-module
-make test-module M=etl/gdb          # one module
-make cli ARGS="--suite e2e"         # via the CLI entrypoint
-pytest -m "db and postgres"         # by marker
-pytest -n auto                      # parallel
-```
+Full command reference, every modifiable parameter, and how to read the results:
+**[docs/setup/running-tests.md](docs/setup/running-tests.md)**.
 
-Reports:
+Short version — `purchase_checker/login` is the only module implemented end to end
+today, and `pytest` is the interface (`lib/app/main/main.py` still raises
+`NotImplementedError`, and the `Makefile` targets below assume a `make` that isn't
+installed on every dev machine):
 
 ```bash
-make report-open    # allure generate + open
+# one module, explicit run target
+python -m pytest -m module lib/app/modules/purchase_checker/login \
+    --env dev --subsidiary MJP --data-set test
+
+python -m pytest -m "module and be" …    # by marker
+python -m pytest                          # everything that collects
 ```
+
+`--data-set` picks which scenarios run: `test` = negative cases, `real` = the happy
+path (which also refreshes `BE_API_TOKEN_<SUB>` in `.env.<env>`).
+
+Reports — both are written every run: `reports/pytest-report.html` (self-contained), and
+the Allure site at `reports/allure-report/`, generated automatically at the end of the
+session.
+
+```bash
+allure open reports/allure-report      # view
+npm install -g allure                  # if the CLI is missing (Allure 3, Node — no Java)
+```
+
+`reports/allure-results/` accumulates across runs — clear it before a report you intend
+to publish.
 
 ## Adding a module
 

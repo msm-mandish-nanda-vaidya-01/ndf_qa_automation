@@ -19,7 +19,11 @@ from lib.app.modules.etl.gdb.db import postgres_checks as gdb_postgres
 from lib.app.modules.etl.gdb.db import s3_checks as gdb_s3
 from lib.app.modules.purchase_checker.login import be as login_be
 from lib.app.modules.purchase_checker.login import fe as login_fe
-from lib.app.modules.purchase_checker.login.db import postgres_checks as login_postgres
+
+# purchase_checker/login has no db/* layer — the XDB Cross data-layer wiring is
+# unconfirmed (see docs/context/module-workflows.md, "Known gaps"), so there is no
+# login_postgres to import. Restore it here only once that wiring is confirmed and the
+# module actually grows a db/ directory.
 
 pytestmark = pytest.mark.critical_path
 
@@ -39,10 +43,10 @@ def test_service_reachability(config, stores):
     raise NotImplementedError("TODO: hit FE/BE health endpoints and each client's health_check")
 
 
-def test_login_works(smoke_session, page, config, postgres):
-    """A user can log in, the UI shows them as logged in, and the session is persisted."""
+def test_login_works(smoke_session, page, config):
+    """A user can log in and the UI shows them on the authenticated page."""
     raise NotImplementedError(
-        "TODO: login_fe.assert_logged_in_as + login_postgres.assert_session_row_created"
+        "TODO: login_fe.assert_purchase_checker_visible + assert_session_cookie_matches"
     )
 
 

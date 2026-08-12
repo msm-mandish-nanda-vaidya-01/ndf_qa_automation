@@ -23,8 +23,8 @@ class GdbEtlResult:
     status: str = ""
     record_count: int = 0
     subsidiary: str = ""
-    submitted_at: str = ""          # ISO8601, as returned by the BE
-    s3_output_key: str = ""         # object the ETL wrote — consumed by s3_checks
+    submitted_at: str = ""  # ISO8601, as returned by the BE
+    s3_output_key: str = ""  # object the ETL wrote — consumed by s3_checks
     raw_response: dict[str, Any] = field(default_factory=dict)
 
 

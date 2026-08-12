@@ -227,6 +227,7 @@ Before treating a change as finished, confirm all of these — don't just eyebal
 
 | Need to... | Read |
 |---|---|
+| Run the suite, change a run parameter, or view a report | `docs/setup/running-tests.md` |
 | Understand how orchestrator/be/fe/db fit together, or wire a new module | `docs/context/system-flow.md` |
 | Add or load test data, or decide where an expected value comes from | `docs/context/test-data-conventions.md` |
 | Find where a file belongs | `docs/context/folder-structure.md` |

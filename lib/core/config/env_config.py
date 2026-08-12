@@ -260,6 +260,35 @@ class Config:
     def feature(self, name: str, default: bool = False) -> bool:
         return bool(self.settings.get("features", {}).get(name, default))
 
+    def next_action(self, name: str) -> str:
+        """Return a Next.js server-action id for the active environment.
+
+        Why this exists: the systems under test are Next.js apps, and invoking a server
+        action from ``be.py`` requires sending its build-generated id in the
+        ``next-action`` request header. The id is not a secret but it *is* environment-
+        specific and regenerates on every deploy of the target app, so it belongs in
+        ``settings.yaml`` next to the URLs rather than inlined in module code.
+
+        Args:
+            name: Key under the environment's ``next_actions`` block in settings.yaml,
+                e.g. ``"purchase_checker_login"``.
+
+        Returns:
+            The server-action id as a hex string.
+
+        Raises:
+            ConfigError: If the active environment has no ``next_actions`` entry with
+                that name — almost always means the id hasn't been captured for this
+                environment yet, not a code bug.
+        """
+        next_actions = self.settings.get("next_actions", {})
+        if name not in next_actions:
+            raise ConfigError(
+                f"Unknown next-action '{name}' for env '{self.env}'. "
+                "Capture it from the app's network tab and add it to settings.yaml."
+            )
+        return str(next_actions[name])
+
     # --- test data resolution ---
 
     def test_data_dir(self, module_path: str) -> Path:
@@ -459,3 +488,23 @@ def get_config(
             bastion_key_file=_resolve_cert_path(secrets, "AWS_BASTION_KEY_FILE"),
         ),
     )
+
+
+def refresh() -> None:
+    """Drop every cached config so the next ``get_config`` re-reads its sources.
+
+    Why this exists: both ``_read_dotenv`` and ``get_config`` are ``@cache``d, which is
+    what makes ``get_config()`` cheap to call from anywhere. That caching is wrong the
+    moment a run *writes* a secret back — e.g. ``purchase_checker/login`` persisting a
+    freshly minted ``BE_API_TOKEN_<SUB>`` into ``.env.<env>`` — because every later
+    caller would keep seeing the pre-write value. ``lib.core.config.env_writer`` calls
+    this after each write.
+
+    Not needed for ordinary reads. Calling it needlessly just costs one dotenv parse per
+    subsequent ``get_config`` (``_load_settings`` is uncached and re-reads either way).
+
+    Returns:
+        None.
+    """
+    _read_dotenv.cache_clear()
+    get_config.cache_clear()
