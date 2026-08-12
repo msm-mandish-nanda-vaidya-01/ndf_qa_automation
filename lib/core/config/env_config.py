@@ -58,6 +58,13 @@ CERTS_ROOT = REPO_ROOT / "certs"
 ENVIRONMENTS: tuple[str, ...] = ("dev", "stg", "prod")
 DEFAULT_ENV = "dev"
 
+# The two data characters every module's test data is split by (see
+# docs/context/test-data-conventions.md). Canonical list: the CLI builds its run matrix
+# from this rather than repeating the pair, so adding a third character is a one-line
+# change here instead of a search across the codebase.
+DATA_SETS: tuple[str, ...] = ("real", "test")
+DEFAULT_DATA_SET = "test"
+
 
 class ConfigError(RuntimeError):
     """Raised when required configuration is missing or malformed."""
@@ -355,6 +362,34 @@ def _resolve_subsidiary(
     return resolved
 
 
+def configured_subsidiaries(env: str | None = None) -> tuple[str, ...]:
+    """Return the canonical subsidiary list from ``settings.yaml``.
+
+    Why this is public: CLAUDE.md requires the subsidiary list to be read from
+    ``settings.yaml`` and never hardcoded elsewhere, and the CLI needs it *before* any
+    ``Config`` exists — it builds the run matrix out of it when ``--subsidiary`` is
+    omitted. Without this the conftest would either duplicate the list or reach into
+    ``_load_settings``.
+
+    Args:
+        env: Environment whose settings block to read. The list lives in ``defaults`` and
+            is shared, so this only matters if an environment ever overrides it; ``None``
+            resolves the run's environment the usual way.
+
+    Returns:
+        The subsidiary codes in authored order, e.g. ``("MJP", "KOR", "USA")``.
+
+    Raises:
+        ConfigError: If the environment is unknown or the list is missing/empty — a
+            settings.yaml authoring error, since nothing can run without it.
+    """
+    settings = _load_settings(_resolve_env(env))
+    subsidiaries = tuple(settings.get("subsidiaries", ()))
+    if not subsidiaries:
+        raise ConfigError("No subsidiaries configured. Check settings.yaml 'defaults.subsidiaries'")
+    return subsidiaries
+
+
 def _suffixed_key(name: str, suffix: str) -> str:
     """Build a suffixed secret key, e.g. ``("FE_URL", "KOR") -> "FE_URL_KOR"``.
 
@@ -455,7 +490,7 @@ def get_config(
     return Config(
         env=resolved_env,
         subsidiary=resolved_subsidiary,
-        data_set=data_set or _optional(secrets, "DATA_SET", "test"),
+        data_set=data_set or _optional(secrets, "DATA_SET", DEFAULT_DATA_SET),
         settings=settings,
         credentials=Credentials(
             fe_url=_optional(secrets, _suffixed_key("FE_URL", resolved_subsidiary)),

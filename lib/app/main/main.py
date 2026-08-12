@@ -7,6 +7,11 @@
 Argparse-based on purpose: every run is expressible as a single copy-pasteable
 command, which is what CI and bug reports need.
 
+The three run-target options must forward through to pytest **verbatim**, including when
+they are repeated or comma-separated: `lib/core/fixtures/conftest.py` owns their meaning
+(multi-value, and "omitted means every configured value"), and re-deriving a single
+default here would silently contradict it.
+
 PLACEHOLDER — implementation to be filled in.
 """
 
@@ -29,9 +34,14 @@ def build_parser() -> argparse.ArgumentParser:
     Options to implement:
       --suite {module,e2e,critical-path,all}   which suite to run (required)
       --module PATH                            e.g. etl/gdb; required for --suite module
-      --env {dev,stg,prod}                     target environment      [default: $ENV]
-      --subsidiary NAME                        e.g. subsidiary_001     [default: $SUBSIDIARY]
-      --data-set {real,test}                   test-data variant       [default: $DATA_SET]
+      --env ENV                                target environment(s). Repeatable and
+                                               comma-separated (--env dev,stg)
+                                               [default: $ENV, else every environment]
+      --subsidiary CODE                        subsidiary code(s), e.g. MJP. Same
+                                               repeatable/comma-separated form
+                                               [default: $SUBSIDIARY, else all]
+      --data-set KIND                          test-data variant(s), real | test. Same
+                                               form  [default: $DATA_SET, else both]
       -m, --markers EXPR                       extra pytest marker expression
       -k EXPR                                  pytest name filter
       -n, --parallel N                         xdist workers ("auto" allowed)

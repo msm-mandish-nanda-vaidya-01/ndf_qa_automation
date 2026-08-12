@@ -17,8 +17,12 @@ The suite is partially implemented. What actually runs today:
 | `python -m lib.app.main.main` (the CLI) | **Not implemented** — raises `NotImplementedError`. The interactive `questionary` menu described in `CLAUDE.md` doesn't exist yet. |
 | `make …` targets | The `Makefile` exists, but **`make` is not installed on the current dev machine**. Treat its targets as documentation and run the underlying `python -m pytest` commands. |
 
-So `pytest` is the interface. `python -m pytest` with no arguments gives 1 pass and 13
-errors — that's expected, not a broken install.
+So `pytest` is the interface. `python -m pytest` with no arguments now collects **252**
+tests, because every test runs once per env × subsidiary × data-set combination (see
+[CLI flags](#1-cli-flags--the-run-target)). That resolves to 6 real runs of
+`purchase_checker/login`, 120 skips for combinations with no test data authored, and 126
+errors from the `e2e` / `critical_path` placeholders — the same `NotImplementedError`
+stubs as before, now reported per combination. Expected, not a broken install.
 
 ## Quick start
 
@@ -27,8 +31,27 @@ python -m pytest -m module lib/app/modules/purchase_checker/login \
     --env dev --subsidiary MJP --data-set test
 ```
 
-All three flags are optional; see [Precedence](#precedence) for what happens when you
-omit them.
+All three flags are optional, **and omitting one means "every value"**, not "a default
+one" — so the command above narrows a matrix rather than picking the only target:
+
+```bash
+# Everything: 3 envs x 3 subsidiaries x 2 data sets = 18 combinations
+python -m pytest -m module lib/app/modules/purchase_checker/login
+
+# Several values per flag — repeat it, or comma-separate. These are identical:
+python -m pytest … --env dev --env stg
+python -m pytest … --env dev,stg
+
+# Mix and match: two envs, one subsidiary, both data sets
+python -m pytest … --env dev,stg --subsidiary MJP
+```
+
+Each combination is a separate parametrized test — `test_login_module[dev-MJP-test]` —
+so one command reports pass/fail per combination instead of stopping at the first. Values
+are case-insensitive (`--env DEV`, `--subsidiary mjp`), duplicates collapse, and the run
+order follows `settings.yaml` regardless of the order you type them in.
+
+See [Precedence](#precedence) for how this interacts with `$ENV`/`$SUBSIDIARY`/`$DATA_SET`.
 
 ## Modifiable parameters
 
@@ -40,11 +63,20 @@ the value is a **run target** (CLI), a **secret** (`.env.<env>`), **non-secret c
 
 Registered in `lib/core/fixtures/conftest.py`.
 
-| Flag | Values | Meaning |
-| --- | --- | --- |
-| `--env` | `dev` \| `stg` \| `prod` | Selects `.env.<env>` and the `environments.<env>` block of `settings.yaml` |
-| `--subsidiary` | `MJP` \| `KOR` \| `USA` | Selects the `*_<SUB>` credential set. Must appear in `settings.yaml`'s `defaults.subsidiaries` |
-| `--data-set` | `real` \| `test` | Selects `test_data/<module>/<env>/<sub>/{real,test}/` |
+All three are repeatable and comma-separated, and default to **all** of their values.
+
+| Flag | Values | Omitted | Meaning |
+| --- | --- | --- | --- |
+| `--env` | `dev` \| `stg` \| `prod` | all three | Selects `.env.<env>` and the `environments.<env>` block of `settings.yaml` |
+| `--subsidiary` | `MJP` \| `KOR` \| `USA` | all configured | Selects the `*_<SUB>` credential set. Must appear in `settings.yaml`'s `defaults.subsidiaries` |
+| `--data-set` | `real` \| `test` | both | Selects `test_data/<module>/<env>/<sub>/{real,test}/` |
+
+A combination reached only by that expansion is **skipped** when the module has no test
+data authored for it, with the missing path as the reason — that's why a bare `pytest`
+against `purchase_checker/login` reports 6 run and 12 skipped rather than 12 failures. Name
+a combination explicitly and it is never skipped: `--env stg` errors with
+`Test data directory does not exist`, because asking for something unauthored is a mistake
+worth seeing rather than hiding.
 
 **`--data-set` is the flag people trip over.** It decides which scenarios run:
 
@@ -136,8 +168,18 @@ For **secrets**, highest first:
 1. Real process environment variables (CI secrets, `ENV=stg python -m pytest …`)
 2. `.env.<env>`
 
-For the **run target**: `--flag` → matching env var (`ENV`/`SUBSIDIARY`/`DATA_SET`) →
-default (`dev` / first subsidiary / `test`).
+For the **run target**: `--flag` → matching **process** env var
+(`ENV`/`SUBSIDIARY`/`DATA_SET`, which also accept `dev,stg`) → **every configured value**.
+
+Two things worth knowing about that last step:
+
+- The fallback reads the *process* environment only, **not** `.env.<env>`. Those files set
+  `ENV` and `DATA_SET` as per-environment config, and honouring `DATA_SET=test` from
+  `.env.dev` would mean a bare `pytest` never ran the `real` data set — the opposite of
+  the full-coverage default. `ENV=stg python -m pytest …` and CI (which passes the target
+  as environment variables) are unaffected.
+- Setting one variable narrows only *that* dimension. `ENV=stg python -m pytest …` runs
+  stg against every subsidiary and both data sets.
 
 There is no shared base `.env`; each environment's file is self-contained.
 
@@ -269,8 +311,13 @@ naming the manual command — a reporting tool never turns a green suite red.
 ### 4. Logs
 
 ```
-logs/run_<env>_<subsidiary>_<data_set>.log
+logs/run_<envs>_<subsidiaries>_<data_sets>.log
 ```
+
+One file per run, not per combination — a matrix run lists each dimension's values in the
+name (`run_dev_MJP+KOR+USA_real+test.log`) and every combination writes into it, tagged by
+the `Run target: env=… subsidiary=… data_set=…` line logged as each one starts. Narrow the
+run with the flags and the name narrows with it (`run_dev_MJP_test.log`).
 
 DEBUG level — raw request payloads and full response detail, which the console (INFO)
 omits. Passwords are masked at the call site and `logging_config._RedactFilter` catches
@@ -288,7 +335,9 @@ backstop.
 | `ConfigError: Unknown ENV '...'` | `--env` must be exactly `dev`, `stg` or `prod` |
 | `ConfigError: Missing secrets file for ENV` | That `.env.<env>` doesn't exist yet — see `getting-started.md` step 3 |
 | `ConfigError: Unknown SUBSIDIARY 'X'. Configured subsidiaries: MJP, KOR, USA` | Not in `settings.yaml`'s `defaults.subsidiaries`. Note `Makefile` and `ci.yml` still default to a stale `subsidiary_001`, which is rejected |
-| `ConfigError: Test data directory does not exist` | No `test_data/<module>/<env>/<sub>/<data_set>/` folder. Every env × subsidiary × data set you run needs one |
+| `ConfigError: Test data directory does not exist` | No `test_data/<module>/<env>/<sub>/<data_set>/` folder for a combination you named **explicitly**. Author it, or drop the flag and let that combination be skipped instead |
+| `ERROR: Unknown --env value(s): qa. Configured: dev, stg, prod` | Typo in `--env`/`--subsidiary`/`--data-set`. Validated up front, so nothing ran |
+| Lots of `SKIPPED [1] … no test data authored for …` | Expected. An omitted flag expands to every value, and combinations without authored test data are skipped rather than failed. Pass the flags to narrow the run |
 | `ConfigError: MONGO_TLS_CA_FILE='certs/mongo-ca-bundle.pem' does not exist` on `--env stg`/`prod` | Config is validated eagerly, so a missing cert blocks the run even for a module that touches no datastore. `.env.stg`/`.env.prod` name `mongo-ca-bundle.pem` and `aws-bastion-key-<env>.pem`, but `certs/` currently holds `global-bundle.pem` and `misumi-ca.pem`. Either add the named files (`getting-started.md` step 4) or blank those two keys for that environment |
 | `ConfigError: Unknown next-action` | `settings.yaml` has no server-action id for that environment. Only `dev` is populated |
 | Every login scenario fails at the BE layer | The `next-action` id or the FE submit-button class went stale after a redeploy — re-capture both |
