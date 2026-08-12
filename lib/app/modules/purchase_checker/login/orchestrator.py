@@ -28,7 +28,8 @@ Failure policy, all three parts of it:
   ``skipped`` list, never as a second entry in ``errors``.
 * **No batch loss.** One case's unforeseen failure must not discard the others, so the
   fan-out gathers with ``return_exceptions=True`` and artifact capture is independently
-  guarded.
+  guarded. Teardown is bounded as well as guarded (``_close_quietly``): a browser that
+  never finishes closing must not swallow a run whose results are already computed.
 * **No silent pass.** A run that resolves zero test cases raises rather than reporting
   success.
 """
@@ -64,6 +65,14 @@ class NoTestCasesError(RuntimeError):
 # test is known to tolerate more — each context is a real browser session against a
 # shared environment.
 MAX_CONCURRENT_TEST_CASES = 5
+
+# Upper bound on each Playwright teardown call. `close()` waits for the browser to
+# acknowledge and exit, and a wedged Chromium simply never answers — observed here as a
+# run that logged "FE: finished" and then sat in `browser.close()` until pytest's 300s
+# timeout killed it, reporting a hang instead of the result it had already computed.
+# Abandoning a close is safe: leaving `async_playwright`'s context stops the driver, which
+# reaps the browser process anyway.
+CLOSE_TIMEOUT_SECONDS = 30
 
 
 async def _run_test_case(
@@ -154,12 +163,10 @@ async def _run_test_case(
     finally:
         # Capture before close, and never let teardown or artifact capture escape: an
         # exception here would propagate into asyncio.gather and discard every other
-        # test case's result.
+        # test case's result, and a close that hangs would stall the batch behind the
+        # semaphore. _close_quietly handles both.
         if context is not None:
-            try:
-                await context.close()
-            except Exception as exc:  # noqa: BLE001 - teardown must not fail the batch
-                logger.debug("Could not close context for %s: %s", test_case.name, exc)
+            await _close_quietly(context, f"context for {test_case.name}")
 
     return result
 
@@ -190,6 +197,44 @@ def _synthesize_be_result(
         login_id=config.credentials.fe_username if login_id is None else login_id,
         succeeded=False,
     )
+
+
+async def _close_quietly(closable: Any, what: str) -> None:
+    """Close a Playwright context or browser without letting teardown break the run.
+
+    Guards the two ways a close can go wrong. An *exception* is a non-event: the thing
+    being closed is already gone, and re-raising from a ``finally`` would replace the real
+    test result or escape into ``asyncio.gather`` and discard the whole batch. A *hang* is
+    the more damaging one, because there is no exception to swallow — `close()` waits on
+    the browser process, and a wedged Chromium never answers, so an unbounded await
+    consumes pytest's whole session timeout and the run reports a timeout instead of the
+    results it had already finished computing.
+
+    Bounded rather than retried: a close that hasn't returned in
+    ``CLOSE_TIMEOUT_SECONDS`` will not return at all, and leaving ``async_playwright``'s
+    context stops the driver, which reaps the process regardless. This is deliberately not
+    ``wait_helper``'s retry — CLAUDE.md scopes that to eventually-consistent BE and DB
+    calls, not to teardown, where a second attempt has nothing new to wait for.
+
+    Args:
+        closable: A Playwright ``BrowserContext`` or ``Browser``.
+        what: Label for the log line, e.g. ``"browser"`` or ``"context for S1_valid_login"``.
+
+    Returns:
+        None. Never raises — a timeout is logged at WARNING (abnormal, but no test case
+        failed), any other error at DEBUG.
+    """
+    try:
+        await asyncio.wait_for(closable.close(), timeout=CLOSE_TIMEOUT_SECONDS)
+    except TimeoutError:
+        logger.warning(
+            "Timed out after %ss closing %s; abandoning it — the Playwright driver will "
+            "reap the process on shutdown. Results are unaffected.",
+            CLOSE_TIMEOUT_SECONDS,
+            what,
+        )
+    except Exception as exc:  # noqa: BLE001 - teardown must not fail the batch
+        logger.debug("Could not close %s: %s", what, exc)
 
 
 async def _stop_tracing(context: Any, case_name: str, path: str | None) -> None:
@@ -315,8 +360,7 @@ async def run(env: str, subsidiary_cd: str, kind: str | None = None) -> list[dic
 
     async with async_playwright() as playwright:
         browser = await playwright[config.settings["browser"]["name"]].launch(
-            headless=config.feature(False),
-            # headless=config.feature("fe_headless", True),
+            headless=config.feature("fe_headless", True),
             slow_mo=config.settings["browser"].get("slow_mo_ms", 0),
         )
         try:
@@ -331,7 +375,7 @@ async def run(env: str, subsidiary_cd: str, kind: str | None = None) -> list[dic
                 *(_run_one(case) for case in test_cases), return_exceptions=True
             )
         finally:
-            await browser.close()
+            await _close_quietly(browser, "browser")
 
     results = [_as_result(case, outcome) for case, outcome in zip(test_cases, raw, strict=True)]
     report_generator.attach_module_results(module=MODULE_PATH, results=results)

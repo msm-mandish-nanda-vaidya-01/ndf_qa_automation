@@ -25,7 +25,7 @@ defaults:
     eventual_consistency_poll_interval: 2
 
   features:
-    fe_headless: true
+    fe_headless: false
     fe_screenshot_on_failure: true
     fe_trace_on_failure: true
     verify_s3: true
