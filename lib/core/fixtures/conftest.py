@@ -26,8 +26,11 @@ from __future__ import annotations
 import itertools
 import logging
 import os
+import re
+import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -52,6 +55,11 @@ pytest_plugins = [
     "lib.core.fixtures.be_fixtures",
     "lib.core.fixtures.db_fixtures",
 ]
+
+# Wall-clock start of the run, stamped in pytest_configure and read by
+# pytest_terminal_summary. Module-level because the two are hooks, not fixtures, so there is
+# no request to carry state on; None means logging was never set up (a --collect-only run).
+_SESSION_STARTED: float | None = None
 
 
 # --- CLI options: let a run target an env/subsidiary/data set without editing .env.<env> ---
@@ -208,14 +216,22 @@ def _resolve_dimension(
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Validate the run-target options before collection starts.
+    """Validate the run-target options and open this run's log file, before collection.
 
-    Resolving the matrix here as well as during collection is deliberate, not redundant:
-    a :class:`pytest.UsageError` raised from ``pytest_generate_tests`` surfaces as a
-    collection error wrapped in a traceback, while the same error raised here prints as a
-    single ``ERROR:`` line. A typo in ``--env`` is the likeliest mistake at this CLI, and
-    it should read like a usage message rather than a crash. The result is discarded —
-    ``resolve_run_targets`` is pure and cheap.
+    Two jobs, both of which have to happen before anything else runs.
+
+    **Validate.** Resolving the matrix here as well as during collection is deliberate, not
+    redundant: a :class:`pytest.UsageError` raised from ``pytest_generate_tests`` surfaces
+    as a collection error wrapped in a traceback, while the same error raised here prints as
+    a single ``ERROR:`` line. A typo in ``--env`` is the likeliest mistake at this CLI, and
+    it should read like a usage message rather than a crash.
+
+    **Start logging.** This is the earliest hook with the options parsed, so configuring the
+    file handler here — rather than from a fixture at first test setup — is what makes the
+    file cover the *whole* run: anything logged during collection or fixture setup used to
+    be written before any handler existed and was silently dropped. Skipped for
+    ``--collect-only``, which runs no tests and would otherwise leave a near-empty file
+    behind every time someone inspects the matrix.
 
     The parameter is named ``config`` because pluggy matches hook arguments to the
     hookspec by name; it is the pytest ``Config`` object, unrelated to this module's
@@ -230,7 +246,25 @@ def pytest_configure(config: pytest.Config) -> None:
     Raises:
         pytest.UsageError: If any of the three options names something unconfigured.
     """
-    resolve_run_targets(config)
+    targets = resolve_run_targets(config)
+    if config.getoption("--collect-only"):
+        return
+
+    global _SESSION_STARTED
+    _SESSION_STARTED = time.monotonic()
+
+    envs, subsidiaries, data_sets = _dimension_summary(targets)
+    log_file = _log_file_name(config, targets)
+    setup_logging(level=logging.INFO, log_file=log_file)
+    write_run_metadata(envs, subsidiaries, data_sets)
+    logging.getLogger(__name__).info(
+        "Run matrix: %d combination(s) — env=%s subsidiary=%s data_set=%s — logging to %s",
+        len(targets),
+        envs,
+        subsidiaries,
+        data_sets,
+        log_file,
+    )
 
 
 def resolve_run_targets(pytest_config: pytest.Config) -> list[RunTarget]:
@@ -415,43 +449,216 @@ def _dimension_values(targets: Sequence[RunTarget], attribute: str) -> list[str]
     return list(dict.fromkeys(getattr(target, attribute) for target in targets))
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _logging(run_targets: list[RunTarget]) -> None:
-    """Initialize logging once per session and stamp Allure run metadata.
+# Longest suite label allowed in a log file name. The full name also carries the matrix and
+# a timestamp, and these files live under an already-deep OneDrive path, so the one
+# unbounded part is capped rather than risking Windows' path limit.
+_LABEL_MAX_CHARS = 40
 
-    Autouse so no module has to remember to request it — an unconfigured logger would
-    silently drop the DEBUG payload/query records that make a failure diagnosable.
+# Anything outside this set is replaced in a log file's suite label. Notably excludes ":"
+# and the path separators, which would turn the file name into a path and take the log out
+# of logs/ (see _suite_label).
+_UNSAFE_LABEL_CHARS = re.compile(r"[^A-Za-z0-9_+.-]+")
 
-    Depends on the whole matrix rather than one ``config``: ``setup_logging`` configures
-    the root logger exactly once, so a matrix run keyed off a single cell would name its
-    file after whichever combination happened to be built first and then quietly collect
-    every other combination's records under that name. The name instead lists each
-    dimension's values (``run_dev_MJP+KOR+USA_test.log``), which stays true to CLAUDE.md's
-    ``logs/<suite>_<env>_<subsidiary_cd>_...`` convention for the single-combination case
-    and remains honest for a matrix.
 
-    The metadata call is retained but self-disabling: ``write_run_metadata`` no-ops while
-    ``features.allure_enabled`` is false (the current default), so a run writes its log
-    file as always and nothing under ``reports/allure-results``.
+def _suite_label(pytest_config: pytest.Config) -> str:
+    """Summarise *what* a run targeted, for the log file name.
+
+    Derived from the paths pytest was pointed at, because that is what a reader actually
+    wants to distinguish two log files by — `login` versus `etl-gdb` versus the whole
+    suite. Reduces each argument to its position under ``lib/app/``:
+
+    * ``lib/app/modules/purchase_checker/login`` -> ``purchase_checker-login``
+    * ``lib/app/modules/etl/gdb/orchestrator.py`` -> ``etl-gdb``
+    * ``lib/app/e2e`` -> ``e2e``
+    * ``lib/app`` (the ``testpaths`` default, i.e. no path given) -> ``all``
+    * anything outside the tree -> just its tail, e.g. ``some_check``
+
+    The result is sanitised to ``[A-Za-z0-9_+.-]``, which is a correctness requirement
+    rather than tidiness: an absolute Windows path reduces to a label containing the drive
+    colon, and ``Path("logs") / "C:-Users-..."`` silently discards the ``logs`` component
+    because pathlib reads ``C:`` as a drive — writing the run's log somewhere other than
+    where it was asked to.
 
     Args:
-        run_targets: Every combination this run covers.
+        pytest_config: The pytest config; ``args`` holds the paths given on the command
+            line, or ``testpaths`` from pytest.ini when none were.
+
+    Returns:
+        A filename-safe label, several targets joined by ``+``, truncated to
+        :data:`_LABEL_MAX_CHARS`. Never empty — falls back to ``"all"`` so a log file is
+        always named consistently.
+    """
+    labels: list[str] = []
+    for argument in pytest_config.args:
+        # Drop any ``::test_name`` selector, and normalise Windows separators.
+        path = argument.replace("\\", "/").split("::")[0].strip("/")
+        # The testpaths default, relative or absolute: the whole suite.
+        if path.endswith("lib/app"):
+            label = "all"
+        else:
+            for root in ("lib/app/modules/", "lib/app/"):
+                if root in path:
+                    path = path.split(root, 1)[1]
+                    break
+            else:
+                # Outside lib/app — an ad-hoc file, or an absolute path from elsewhere.
+                # Only its tail carries meaning, and dropping the rest is also what keeps a
+                # drive letter out of the name.
+                path = path.rsplit("/", 1)[-1]
+            # A module is identified by its directory; the file inside it adds nothing.
+            label = path.removesuffix(".py").replace("/", "-").removesuffix("-orchestrator")
+        label = _UNSAFE_LABEL_CHARS.sub("-", label).strip("-") or "all"
+        if label not in labels:
+            labels.append(label)
+    return ("+".join(labels) or "all")[:_LABEL_MAX_CHARS]
+
+
+def _log_file_name(pytest_config: pytest.Config, targets: Sequence[RunTarget]) -> str:
+    """Build this run's log file name: what ran, against what, and when.
+
+    Timestamped to the second so **no run ever overwrites or appends to another's log**.
+    That matters more than it looks: the handler opens in append mode, so before the
+    timestamp a second run against the same matrix silently continued the previous file,
+    and two runs' records interleaved under one name with no boundary between them. A
+    distinct file per run is what makes "the log from the 14:39 failure" a thing you can
+    actually retrieve.
+
+    Shape follows CLAUDE.md's ``<suite>_<env>_<subsidiary_cd>_<timestamp>`` convention,
+    extended with the data set and with each dimension listing every value the matrix
+    covered.
+
+    Args:
+        pytest_config: The pytest config, for the suite label.
+        targets: The resolved run matrix, for the env/subsidiary/data-set parts.
+
+    Returns:
+        A file name such as
+        ``purchase_checker-login_dev_MJP+KOR_real+test_20260812-143912.log``.
+    """
+    envs, subsidiaries, data_sets = _dimension_summary(targets)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return f"{_suite_label(pytest_config)}_{envs}_{subsidiaries}_{data_sets}_{stamp}.log"
+
+
+def _dimension_summary(targets: Sequence[RunTarget]) -> tuple[str, str, str]:
+    """Summarise the matrix as three ``+``-joined strings.
+
+    Args:
+        targets: The resolved run matrix.
+
+    Returns:
+        ``(envs, subsidiaries, data_sets)``, each listing that dimension's distinct values
+        in run order — e.g. ``("dev", "MJP+KOR", "real+test")``. Shared by the log file's
+        name and the run-scope line logged at startup so the two can't disagree.
+    """
+    envs, subsidiaries, data_sets = (
+        "+".join(_dimension_values(targets, attribute))
+        for attribute in ("env", "subsidiary", "data_set")
+    )
+    return envs, subsidiaries, data_sets
+
+
+def pytest_runtest_logreport(report: pytest.TestReport) -> None:
+    """Record every test's outcome in the run log, not just its flow.
+
+    Why this hook exists: the orchestrators log what they *do*, and pytest tracks what
+    *happened*, and those went to two different places — the log file ended at the last
+    "FE: finished" line while the pass/fail verdict, the failure detail and the skip reason
+    existed only in terminal output that scrolls away. Reading a saved log then meant
+    inferring the result from the absence of errors. Mirroring pytest's own verdicts into
+    the same file makes it the single record of a run.
+
+    ``report.longreprtext`` is included for failures, which is what carries an
+    orchestrator's assembled summary (``5/6 login test case(s) failed: …``) — that text is
+    produced by ``pytest.fail`` and never passes through ``logging`` otherwise.
+
+    Levels follow CLAUDE.md: a failed test case is ERROR; a skip is INFO, because the run
+    matrix skips unauthored combinations by design and WARNING would mean 120 warnings on a
+    bare run.
+
+    Args:
+        report: The phase report pytest just completed. Setup/teardown phases are reported
+            only when they failed — a passing setup is noise — so a normal test contributes
+            exactly one line.
 
     Returns:
         None.
     """
-    envs, subsidiaries, data_sets = (
-        "+".join(_dimension_values(run_targets, attribute))
-        for attribute in ("env", "subsidiary", "data_set")
+    logger = logging.getLogger(__name__)
+    if report.failed:
+        # An exception outside the test body is an ERROR in pytest's own vocabulary; keeping
+        # the distinction tells "the harness broke" apart from "the assertion failed".
+        outcome = "FAILED" if report.when == "call" else f"ERROR ({report.when})"
+        logger.error(
+            "Test %s: %s (%.2fs)%s",
+            report.nodeid,
+            outcome,
+            report.duration,
+            f"\n{report.longreprtext}" if report.longreprtext else "",
+        )
+    elif report.skipped:
+        logger.info("Test %s: SKIPPED — %s", report.nodeid, _skip_reason(report))
+    elif report.when == "call":
+        logger.info("Test %s: PASSED (%.2fs)", report.nodeid, report.duration)
+
+
+def _skip_reason(report: pytest.TestReport) -> str:
+    """Extract a skip's reason text from its report.
+
+    Args:
+        report: A skipped phase report. pytest models the reason as a
+            ``(file, line, "Skipped: <reason>")`` triple, which is not worth making every
+            caller unpack.
+
+    Returns:
+        The reason, or ``"<no reason given>"`` when the report carries none — never raises,
+        since a logging path must not fail a run.
+    """
+    longrepr = getattr(report, "longrepr", None)
+    if isinstance(longrepr, tuple) and len(longrepr) == 3:
+        return str(longrepr[2]).removeprefix("Skipped: ")
+    return str(longrepr) if longrepr else "<no reason given>"
+
+
+def pytest_terminal_summary(
+    terminalreporter: pytest.TerminalReporter, exitstatus: int, config: pytest.Config
+) -> None:
+    """Write the session's closing tally into the run log.
+
+    The counterpart to :func:`pytest_runtest_logreport`: that records each test, this
+    records the run. Without it the log file has every verdict but no bottom line, so
+    answering "did this run pass?" means tallying by hand. Logged at ERROR when anything
+    failed so the file's severity reflects the run's outcome, which is what makes
+    ``grep ERROR`` on a log directory a useful triage step.
+
+    Args:
+        terminalreporter: pytest's reporter, whose ``stats`` hold the per-outcome reports.
+        exitstatus: The session's exit status, recorded verbatim — ``0`` is a pass, ``1``
+            tests failed, ``2`` interrupted, ``4`` usage error.
+        config: The pytest config. Unused; accepted because pluggy matches hooks by
+            parameter name and omitting it would not change what is called.
+
+    Returns:
+        None.
+    """
+    stats = terminalreporter.stats
+    tally = ", ".join(
+        f"{len(stats[outcome])} {outcome}"
+        for outcome in ("passed", "failed", "error", "skipped", "xfailed", "xpassed")
+        if stats.get(outcome)
     )
-    setup_logging(level=logging.INFO, log_file=f"run_{envs}_{subsidiaries}_{data_sets}.log")
-    write_run_metadata(envs, subsidiaries, data_sets)
-    logging.getLogger(__name__).info(
-        "Run matrix: %d combination(s) — env=%s subsidiary=%s data_set=%s",
-        len(run_targets),
-        envs,
-        subsidiaries,
-        data_sets,
+    elapsed = time.monotonic() - _SESSION_STARTED if _SESSION_STARTED else 0.0
+    failures = [report.nodeid for report in stats.get("failed", [])]
+    failures += [report.nodeid for report in stats.get("error", [])]
+
+    logger = logging.getLogger(__name__)
+    logger.log(
+        logging.ERROR if failures else logging.INFO,
+        "Session summary: %s in %.2fs (exit status %s)%s",
+        tally or "no tests ran",
+        elapsed,
+        exitstatus,
+        "\n  " + "\n  ".join(failures) if failures else "",
     )
 
 

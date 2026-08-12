@@ -5,6 +5,16 @@ performed also works through the UI. Every assertion that *can* be validated aga
 :class:`~lib.app.modules.purchase_checker.login.be.LoginResult` is; see ``PLAN.md`` §4 for
 which ones can't and why.
 
+Two entry points, and which one a caller wants depends on why it is logging in:
+
+* :func:`assert_matches` — *this module's own test*. Drives a login scenario and asserts
+  the UI agrees with ``be.py``. Only this module's orchestrator calls it.
+* :func:`log_in` — *another module's precondition*. Authenticates and leaves the browser
+  on the Purchase Checker page, asserting nothing about any scenario. This is the FE half
+  of the cross-module pattern, paired with :func:`be.login` for the API half: a dependent
+  module takes session values from the BE call and a live browser session from this one.
+  See ``docs/context/system-flow.md``, "Cross-module dependencies".
+
 One scenario reaches the UI by a different route than the BE. ``1_country`` is a field the
 BE sets directly and the browser cannot; its UI equivalent is to drive *another*
 subsidiary's locale login page with this run's credentials — see
@@ -342,6 +352,123 @@ async def assert_login_rejected(page: Page, config: Config, expected_message: st
     logger.info("FE: login correctly rejected (no session cookie issued)")
 
 
+async def submit_login(
+    page: Page,
+    config: Config,
+    *,
+    login_id: str | None = None,
+    password: str | None = None,
+    country: str | None = None,
+) -> Config:
+    """Drive the login form to the point of submission, and stop there.
+
+    The shared front half of both FE entry points: :func:`log_in` continues by waiting for
+    the authenticated page, :func:`assert_matches` continues by asserting whichever outcome
+    its scenario expects. Factored out so the page sequence — landing page, locale login
+    link, three form fields — has one definition; two copies of it would drift the moment
+    the login page changes, which CLAUDE.md names as this codebase's most common mistake.
+
+    Does **not** wait for the outcome. Nothing may query the page's state straight after
+    this returns: ``page.click`` resolves when the click is dispatched, so the callers'
+    settle/wait step is not optional (see the module docstring).
+
+    Args:
+        page: A Playwright page with a fresh, unauthenticated context.
+        config: The run configuration. Always supplies the credentials, including when
+            ``country`` points the browser at another subsidiary's pages.
+        login_id: Login id to submit. None uses ``FE_USERNAME_<SUB>`` for the run's
+            subsidiary.
+        password: Password to submit. None uses ``FE_PASSWORD_<SUB>``.
+        country: Drive this country's locale login page instead of the run's own — see
+            :func:`config_for_country`. None uses the run's subsidiary.
+
+    Returns:
+        The :class:`Config` whose pages were actually driven — the run's own, or the
+        overridden country's. Callers pass it to the assertions that follow so their
+        timeouts and locale match the page in front of them.
+
+    Raises:
+        ValueError: If the resolved FE URL has no locale segment.
+        ConfigError: If ``country`` is not a configured subsidiary.
+        playwright.async_api.Error: If navigation fails, or a field or the submit button
+            never becomes actionable.
+    """
+    page_config = config if country is None else config_for_country(config, country)
+    if page_config is not config:
+        logger.info(
+            "FE: driving %s's login page with %s credentials (country override '%s')",
+            page_config.subsidiary,
+            config.subsidiary,
+            country,
+        )
+    await open_login_page(page, page_config)
+    await submit_credentials(
+        page,
+        page_config,
+        config.credentials.fe_username if login_id is None else login_id,
+        config.credentials.fe_password if password is None else password,
+    )
+    return page_config
+
+
+async def log_in(
+    page: Page,
+    config: Config,
+    *,
+    login_id: str | None = None,
+    password: str | None = None,
+    country: str | None = None,
+) -> None:
+    """Authenticate the browser and leave it on the Purchase Checker page.
+
+    **This is the cross-module FE entry point**, the counterpart to :func:`be.login`. A
+    module that needs a logged-in *browser* as a precondition calls this and nothing else
+    from this package's ``fe`` — not :func:`assert_matches`, which asserts a login
+    *scenario* and would report this module's test outcomes inside another module's run.
+    See ``docs/context/system-flow.md``, "Cross-module dependencies".
+
+    Why it exists as its own function rather than callers stitching
+    :func:`open_login_page` and :func:`submit_credentials` together: that pair leaves the
+    browser mid-submit, and everything after it would read the page as it was *before* the
+    server answered — the exact trap the module docstring documents. Waiting for the
+    authenticated heading here is what makes the returned session usable, and gives one
+    place to fix it if the signal for "logged in" ever changes.
+
+    Args:
+        page: A Playwright page with a fresh, unauthenticated context. On return the page —
+            and by extension its context's cookies — carries the session, so the caller
+            continues with the same ``page`` or reuses ``page.context.storage_state()``.
+        config: The run configuration, supplying the URL and credentials.
+        login_id: Log in as someone other than ``FE_USERNAME_<SUB>``. None uses the
+            environment's user, which is what a precondition normally wants.
+        password: Password override. None uses ``FE_PASSWORD_<SUB>``.
+        country: Log in on another subsidiary's locale pages. None uses the run's own, which
+            is what a precondition normally wants — the override exists for the
+            cross-subsidiary scenario this module tests.
+
+    Returns:
+        None. The session lives on ``page``/its context, not in a return value.
+
+    Raises:
+        AssertionError: If the authenticated page never rendered, i.e. the login did not
+            work. Raised rather than returned so a dependent module treats it as the
+            precondition failure it is and aborts the test case, matching
+            :func:`be.login`'s contract.
+        ValueError: If the resolved FE URL has no locale segment.
+        ConfigError: If ``country`` is not a configured subsidiary.
+        playwright.async_api.Error: On a navigation or interaction failure.
+    """
+    page_config = await submit_login(
+        page, config, login_id=login_id, password=password, country=country
+    )
+    await assert_purchase_checker_visible(page, page_config)
+    logger.info(
+        "FE: session established for %s (%s)",
+        config.credentials.fe_username if login_id is None else login_id,
+        page_config.subsidiary,
+    )
+
+
 async def assert_matches(
     page: Page, config: Config, test_case: Any, be_result: LoginResult
 ) -> dict[str, Any]:
@@ -376,36 +503,26 @@ async def assert_matches(
         ConfigError: If the case's ``country`` is not a configured subsidiary.
         playwright.async_api.Error: On a navigation or interaction failure.
     """
-    country = test_case.get("country")
-    page_config = config if country is None else config_for_country(config, country)
-    if page_config is not config:
-        logger.info(
-            "FE: driving %s's login page with %s credentials (country override '%s')",
-            page_config.subsidiary,
-            config.subsidiary,
-            country,
-        )
-    await open_login_page(page, page_config)
     # The login id is taken from be_result so both layers provably submit the same one.
     # The password can't be: LoginResult deliberately never carries it, so a case that
     # overrides the password (every wrong-password scenario) is read from the test data.
-    password = test_case.get("password")
-    await submit_credentials(
+    page_config = await submit_login(
         page,
         config,
-        be_result.login_id,
-        config.credentials.fe_password if password is None else password,
+        login_id=be_result.login_id,
+        password=test_case.get("password"),
+        country=test_case.get("country"),
     )
 
     expect_success = bool(test_case.get("expect_success", False))
     if expect_success:
         # assert_purchase_checker_visible waits for the heading, which is itself the
         # settle for this branch; the rejection branch settles inside its own assertion.
-        await assert_purchase_checker_visible(page, config)
+        await assert_purchase_checker_visible(page, page_config)
         await assert_session_cookie_matches(page, be_result)
     else:
         expected = test_case.get("expected", {})
-        await assert_login_rejected(page, config, expected.get("error_message") or "")
+        await assert_login_rejected(page, page_config, expected.get("error_message") or "")
 
     heading = page.get_by_role("heading", level=1, name=SUCCESS_HEADING)
     cookie = next(

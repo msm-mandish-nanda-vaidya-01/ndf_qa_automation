@@ -72,7 +72,12 @@ MAX_CONCURRENT_TEST_CASES = 5
 # timeout killed it, reporting a hang instead of the result it had already computed.
 # Abandoning a close is safe: leaving `async_playwright`'s context stops the driver, which
 # reaps the browser process anyway.
-CLOSE_TIMEOUT_SECONDS = 30
+#
+# Sized off measurement, not intuition: a healthy close on this app takes 1-3s, while the
+# wedged case never returns at all (it hit 16% of runs when this bound was 30s, every time
+# consuming the full 30s). There is no middle ground to preserve headroom for, so the bound
+# only decides how long a wedge costs. 8s leaves ~3x margin over the slowest healthy close.
+CLOSE_TIMEOUT_SECONDS = 8
 
 
 async def _run_test_case(

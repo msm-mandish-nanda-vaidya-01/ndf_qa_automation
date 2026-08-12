@@ -40,9 +40,13 @@ even if it seems implied:
      which one, don't assume.
    - Do **not** create a stub file for a layer the module doesn't use. An absent file is the
      correct signal, per `system-flow.md`.
-2. **Does this module depend on another module's state?** If yes, which module, and confirm
-   the dependency call goes through the dependency's `be.py` only (never its `fe.py`, `db/*`,
-   or `orchestrator.py` — see system-flow.md's "Cross-module dependencies" section).
+2. **Does this module depend on another module's state?** If yes, which module, and which
+   halves it needs: the dependency's `be.py` for state to carry forward, and/or its `fe.py`
+   for an authenticated browser session. Confirm each call goes through that layer's
+   state-establishing entry point (`be.login()` / `fe.log_in()`), never its assertion entry
+   point, and never the dependency's `db/*` or `orchestrator.py` — see system-flow.md's
+   "Cross-module dependencies" section. If the dependency has no such entry point, add one
+   there rather than inlining its steps here.
 3. **Which environments/subsidiaries** does this module apply to? (Default: all of
    `dev/stg/prod` × `MJP/KOR/USA` unless the user says otherwise — some modules are
    subsidiary-specific.)

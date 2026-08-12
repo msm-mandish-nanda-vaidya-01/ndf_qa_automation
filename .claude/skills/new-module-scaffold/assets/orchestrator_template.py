@@ -19,8 +19,14 @@ from lib.core.utils import data_loader, report_generator
 # from lib.app.modules.<domain>.<module_name> import be, fe
 # from lib.app.modules.<domain>.<module_name>.db import postgres_checks, mongo_checks, opensearch_checks, s3_checks
 
-# If this module depends on another module's state, import ONLY that module's be.py:
-# from lib.app.modules.<dependency_domain>.<dependency_module> import be as dependency_be
+# If this module depends on another module's state, import that module's LAYERS separately
+# and call only their state-establishing entry points — never its assertions, db/* or
+# orchestrator (see system-flow.md, "Cross-module dependencies"):
+#   from lib.app.modules.<dependency_domain>.<dependency_module> import be as dependency_be
+#   from lib.app.modules.<dependency_domain>.<dependency_module> import fe as dependency_fe
+# The BE half returns values this module carries forward (e.g. auth headers); the FE half
+# leaves `page` authenticated so this module keeps navigating in that session. Import only
+# the half this module needs.
 
 logger = logging.getLogger(__name__)
 
@@ -80,8 +86,17 @@ async def _run_test_case(test_case, env: str, subsidiary_cd: str) -> dict:
     result: dict = {"test_case": test_case.name, "errors": []}
 
     # --- Precondition / cross-module dependency (delete if not applicable) ---
+    # Both halves, or just the one this module needs. Wrapped together because either
+    # failing means the same thing: the precondition isn't in place, so there is nothing
+    # meaningful left to check for this test case.
     # try:
-    #     precondition_state = await dependency_be.login(env, subsidiary_cd, test_case.credentials)
+    #     # BE half — state to pass forward into this module's own requests.
+    #     precondition_state = await dependency_be.login(env, subsidiary_cd)
+    #     auth_headers = precondition_state.auth_headers()
+    #     # FE half — leaves `page` authenticated; this module continues in that session.
+    #     # Reuse page.context.storage_state() across test cases rather than logging in
+    #     # once per case (see system-flow.md, "Cross-module dependencies").
+    #     await dependency_fe.log_in(page, config)
     # except Exception as exc:
     #     logger.error("Precondition failed for %s: %s", test_case.name, exc)
     #     result["errors"].append({"stage": "precondition", "error": str(exc)})

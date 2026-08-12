@@ -76,19 +76,48 @@ Don't add a third top-level domain without updating that file first.
 ### Cross-module dependencies
 
 If module A needs module B's state as a precondition (e.g. `purchase_checker/login` needs a
-logged-in session before another module can act), **A's orchestrator imports and calls only
-B's `be.py`** to establish that state. It does not call B's `fe.py` or `db/*` checks, and it
-does not call B's orchestrator. This keeps dependency setup fast and avoids double-asserting
-things B's own test suite already covers.
+logged-in session before another module can act), **A's orchestrator imports B's layers
+separately and calls only their designated cross-module entry points**:
+
+| From B | A may call | A must not call |
+|---|---|---|
+| `be.py` | the entry point that *establishes* state and returns it (`login()`) | anything expecting a specific test outcome (`login_expect_failure()`) |
+| `fe.py` | the entry point that *establishes a browser session* and asserts nothing about a scenario (`log_in()`) | the scenario assertion (`assert_matches()`) |
+| `db/*_checks.py` | nothing | all of it — B's persisted state is B's suite's business |
+| `orchestrator.py` | nothing | all of it — it would run B's whole test suite inside A's run |
+
+The two halves are independent and both are usually wanted: the BE call yields values A
+carries forward (a token, an id — `LoginResult.auth_headers()`), while the FE call yields a
+live browser session A keeps navigating in. Neither is a substitute for the other — a BE
+token does not authenticate a browser, and a browser session is not a request header.
+
+Each imported layer must expose a session/state entry point that is **separate from its
+assertion entry point**. A dependent module calling B's assertions would report B's test
+outcomes inside A's run and fail A for B's defects; a dependent module hand-stitching B's
+internals (`open_login_page` + `submit_credentials`) re-implements B's page sequence and
+drifts the moment B's page changes. If B has no such entry point yet, add one to B rather
+than inlining B's steps into A.
 
 ```python
 # inside modules/purchase_checker/some_dependent_module/orchestrator.py
 from lib.app.modules.purchase_checker.login import be as login_be
+from lib.app.modules.purchase_checker.login import fe as login_fe
 
-async def run(test_case, ctx):
-    session_state = await login_be.login(ctx.env, ctx.subsidiary_cd, test_case.credentials)
-    # proceed with this module's own be/fe/db flow using session_state
+async def run(test_case, env, subsidiary_cd, page, config):
+    # BE half — state to pass forward. Raises AssertionError if the precondition fails,
+    # which aborts this test case (setup failure, per "Error handling" below).
+    session = await login_be.login(env, subsidiary_cd)
+    headers = session.auth_headers()          # {"Authorization": "Bearer ..."}
+
+    # FE half — a browser session this module continues in. Asserts nothing about login.
+    await login_fe.log_in(page, config)
+
+    # proceed with this module's own be/fe/db flow using `headers` and `page`
 ```
+
+Reuse the FE session rather than logging in per test case: `page.context.storage_state()`
+after `log_in` seeds further contexts already authenticated, which keeps a data-driven
+fan-out from paying the login cost N times.
 
 ### Concurrency
 
@@ -200,7 +229,8 @@ Top-level options: **Module Testing**, **E2E Testing**, **Critical Path Testing*
   expected value instead comes from the test-data file itself — either hardcoded or resolved
   from the DB/backend at run time — per `docs/context/test-data-conventions.md`.
 - **Logging**: standard `logging` module. Console handler (INFO+) and a per-run file handler
-  writing to `logs/<suite>_<env>_<subsidiary_cd>_<timestamp>.txt` (DEBUG+). Levels: DEBUG = raw
+  writing to `logs/<suite>_<env>_<subsidiary_cd>_<data_set>_<timestamp>.log` (DEBUG+) — the
+  timestamp is what keeps each run's file separate, since the handler appends. Levels: DEBUG = raw
   request/response payloads and DB queries, INFO = flow milestones (orchestrator/be/fe/db
   start/end per test case), WARNING = retries, ERROR = a layer failed for a test case, CRITICAL
   = orchestrator aborted the whole run.

@@ -12,7 +12,7 @@ defaults:
   subsidiaries: [MJP, KOR, USA]
 
   timeouts:
-    page_load: 10
+    page_load: 15
     element: 15
     api_request: 30
     db_query: 20

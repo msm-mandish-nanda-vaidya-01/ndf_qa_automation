@@ -311,13 +311,43 @@ naming the manual command — a reporting tool never turns a green suite red.
 ### 4. Logs
 
 ```
-logs/run_<envs>_<subsidiaries>_<data_sets>.log
+logs/<suite>_<envs>_<subsidiaries>_<data_sets>_<YYYYmmdd-HHMMSS>.log
 ```
 
-One file per run, not per combination — a matrix run lists each dimension's values in the
-name (`run_dev_MJP+KOR+USA_real+test.log`) and every combination writes into it, tagged by
-the `Run target: env=… subsidiary=… data_set=…` line logged as each one starts. Narrow the
-run with the flags and the name narrows with it (`run_dev_MJP_test.log`).
+for example `purchase_checker-login_dev_MJP+KOR_real+test_20260812-143912.log`.
+
+**Every run gets its own file.** The timestamp is what guarantees that — the handler opens
+in append mode, so before it a second run against the same matrix silently continued the
+previous file and the two runs' records interleaved with no boundary between them. The name
+each run chose is echoed at startup:
+
+```
+Run matrix: 4 combination(s) — env=dev subsidiary=MJP+KOR data_set=real+test — logging to …
+```
+
+- `<suite>` is derived from the paths you passed: `lib/app/modules/purchase_checker/login`
+  → `purchase_checker-login`, `lib/app/e2e` → `e2e`, several targets joined with `+`, and
+  `all` when you pass no path.
+- The three matrix parts list every value the run covered, so one file per run rather than
+  per combination. Each combination's records are tagged by the `Run target: env=…
+  subsidiary=… data_set=…` line logged as it starts.
+- Files accumulate by design. `make clean` empties `logs/` when you want them gone.
+- `--collect-only` writes no file — it runs nothing.
+
+**The file is the whole record of a run**, not just its flow. Alongside the BE/FE/DB lines
+it carries pytest's own verdicts, so you never have to reconstruct the result from the
+absence of errors:
+
+| In the log | From |
+|---|---|
+| `Run matrix: 4 combination(s) — … — logging to …` | start of the run, before collection |
+| `Test …::test_login_module[dev-MJP-test]: PASSED (30.83s)` | each test's outcome and duration |
+| `Test …: FAILED` + the orchestrator's `5/6 login test case(s) failed: …` summary | failures, including the text `pytest.fail` produced and full tracebacks |
+| `Test …: SKIPPED — no test data authored for …` | skip reasons |
+| `Session summary: 2 passed, 1 failed, 12 skipped in 121.71s (exit status 1)` + failing ids | end of the run |
+
+The session summary is logged at ERROR when anything failed, so `grep ERROR logs/*.log`
+finds the runs worth looking at.
 
 DEBUG level — raw request payloads and full response detail, which the console (INFO)
 omits. Passwords are masked at the call site and `logging_config._RedactFilter` catches

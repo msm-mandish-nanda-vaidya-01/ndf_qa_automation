@@ -95,6 +95,30 @@ class LoginResult:
     error_body: str = ""
     raw_headers: dict[str, str] = field(default_factory=dict)
 
+    def auth_headers(self) -> dict[str, str]:
+        """Return the request headers a dependent module needs to reuse this session.
+
+        Why this rather than each caller writing ``{"Authorization": result.authorization}``:
+        the header name and the ``Bearer`` scheme are this module's knowledge, and a
+        dependent module hardcoding them is a second definition that drifts if the app ever
+        changes scheme. This is the BE half of the cross-module pattern — see the module
+        docstring — and the one thing a caller should pass forward from a login.
+
+        Returns:
+            A single-entry mapping ready to merge into an ``httpx`` request's headers.
+
+        Raises:
+            ValueError: If the login issued no token. Calling this on a rejected or
+                not-yet-performed login is a caller-ordering bug, not a state to paper
+                over with an empty header that would fail later as a confusing 401.
+        """
+        if not self.authorization:
+            raise ValueError(
+                "auth_headers() called on a LoginResult carrying no authorization; "
+                "only call this for a successful login."
+            )
+        return {"Authorization": self.authorization}
+
     def to_report_dict(self) -> dict[str, Any]:
         """Return a copy safe to put in a log line or an Allure attachment.
 

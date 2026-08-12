@@ -47,24 +47,47 @@ looping sequentially.
 ## Cross-module dependencies
 
 When module A needs state that module B is responsible for creating (most commonly: A needs a
-logged-in session that `purchase_checker/login` produces), **A's orchestrator imports and calls
-only B's `be.py`**:
+logged-in session that `purchase_checker/login` produces), **A's orchestrator imports B's
+layers separately and calls only their cross-module entry points** — the BE one for state it
+carries forward, the FE one for a browser session it keeps working in:
 
 ```python
 from lib.app.modules.purchase_checker.login import be as login_be
+from lib.app.modules.purchase_checker.login import fe as login_fe
 
-session_state = await login_be.login(env, subsidiary_cd, credentials)
+# BE half: values to pass forward into A's own requests.
+session = await login_be.login(env, subsidiary_cd)
+headers = session.auth_headers()        # {"Authorization": "Bearer ..."}
+
+# FE half: `page` is now authenticated and stays that way as A navigates.
+await login_fe.log_in(page, config)
 ```
 
+Both halves are usually wanted, and neither substitutes for the other: a bearer token does
+not authenticate a browser, and a browser session is not a request header. Call only the half
+A actually needs — a BE-only module skips `log_in`.
+
 Rules for this:
-- Never call B's `fe.py` or `db/*` from A — B's own test suite already covers that; re-running
-  it from A is duplicated work and duplicated failure noise.
+- Each layer exposes **two separate entry points**, and A may only use the state-establishing
+  one. In `purchase_checker/login` that is `be.login()` / `fe.log_in()`; the assertion
+  entry point (`fe.assert_matches()`, and `be.login_expect_failure()`) belongs to B's own
+  orchestrator. Calling B's assertions from A reports B's test outcomes inside A's run, so A
+  goes red for a defect in B.
+- Never hand-stitch B's internals from A (`open_login_page` + `submit_credentials`) — that
+  re-implements B's page sequence and drifts the moment B's login page changes. If B lacks a
+  suitable entry point, add one to B.
+- Never call B's `db/*` from A — B's own test suite already covers that; re-running it from A
+  is duplicated work and duplicated failure noise.
 - Never call B's `orchestrator.py` from A — the orchestrator layer is for *running that
   module's own test cases*, not for reuse as a setup step.
-- If the dependency's `be.py` call itself fails, treat it as a precondition failure: abort that
-  test case immediately (don't run A's own be/fe/db — there's nothing meaningful to check yet),
-  log at ERROR, and report it distinctly from a normal assertion failure so it's not confused
-  with a bug in module A.
+- Reuse the session across A's test cases instead of logging in per case: after `log_in`,
+  `page.context.storage_state()` seeds further contexts already authenticated, so a
+  data-driven fan-out doesn't pay the login cost N times.
+- If the dependency call itself fails — `be.login()` raising `AssertionError`, or `fe.log_in()`
+  raising because the authenticated page never rendered — treat it as a precondition failure:
+  abort that test case immediately (don't run A's own be/fe/db — there's nothing meaningful to
+  check yet), log at ERROR, and report it distinctly from a normal assertion failure so it's
+  not confused with a bug in module A.
 
 ## Concurrency model
 
