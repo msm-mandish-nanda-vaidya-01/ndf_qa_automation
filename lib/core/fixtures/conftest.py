@@ -107,6 +107,10 @@ def _logging(config: Config) -> None:
     ``logs/<suite>_<env>_<subsidiary_cd>_<timestamp>.txt`` convention, so parallel runs
     against different subsidiaries don't interleave into one file.
 
+    The metadata call is retained but self-disabling: ``write_run_metadata`` no-ops while
+    ``features.allure_enabled`` is false (the current default), so a run writes its log
+    file as always and nothing under ``reports/allure-results``.
+
     Args:
         config: The resolved run configuration.
 
@@ -155,11 +159,17 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     session, so the site can only be generated once they are all written. ``sessionfinish``
     is the last hook with the results directory complete.
 
+    **Currently a no-op**: ``features.allure_enabled`` is false in settings.yaml, so this
+    returns before invoking the Allure commandline. The hook is left wired up so flipping
+    that one flag (plus restoring ``--alluredir`` in pytest.ini, which is what makes
+    allure-pytest write the raw results this renders) brings reporting back with no code
+    change. ``features.auto_generate_allure_report`` remains the narrower switch — keep the
+    site generation off while still collecting raw results.
+
     **Never fails the run.** Generating the site needs the external Allure commandline,
     which isn't installed everywhere. A missing or failing CLI is reported as a WARNING
     naming the manual command — turning a passing suite red over a reporting tool would be
-    the wrong trade. Disable entirely with ``features.auto_generate_allure_report: false``
-    in settings.yaml.
+    the wrong trade.
 
     Args:
         session: The finished pytest session, used to reach the run configuration.
@@ -175,6 +185,8 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
             subsidiary=session.config.getoption("--subsidiary"),
             data_set=session.config.getoption("--data-set"),
         )
+        if not config.feature("allure_enabled", True):
+            return
         if not config.feature("auto_generate_allure_report", True):
             return
         generate_report()

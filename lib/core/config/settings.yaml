@@ -31,9 +31,15 @@ defaults:
     verify_s3: true
     verify_opensearch: true
     strict_db_row_count: false
+    # Master switch for every Allure artifact: run metadata, per-test attachments and the
+    # generated HTML site. Currently OFF — the reporting code is kept intact and a run
+    # simply writes no allure files. Flip to true (and restore --alluredir in pytest.ini,
+    # which is what makes allure-pytest write raw results at all) to turn reporting back on.
+    allure_enabled: false
     # Render reports/allure-results into an HTML site at the end of every pytest session.
-    # Needs the external `allure` commandline; when it's absent the run still passes and
-    # logs a WARNING with the manual command. Set false to skip the attempt entirely.
+    # Subordinate to allure_enabled — ignored while that is false. Needs the external
+    # `allure` commandline; when it's absent the run still passes and logs a WARNING with
+    # the manual command. Set false to skip the attempt entirely.
     auto_generate_allure_report: true
 
   browser:

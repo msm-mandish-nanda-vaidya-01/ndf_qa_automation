@@ -64,17 +64,13 @@ python -m pytest                          # everything that collects
 `--data-set` picks which scenarios run: `test` = negative cases, `real` = the happy
 path (which also refreshes `BE_API_TOKEN_<SUB>` in `.env.<env>`).
 
-Reports — both are written every run: `reports/pytest-report.html` (self-contained), and
-the Allure site at `reports/allure-report/`, generated automatically at the end of the
-session.
+Reports — `reports/pytest-report.html` (self-contained) is written every run.
 
-```bash
-allure open reports/allure-report      # view
-npm install -g allure                  # if the CLI is missing (Allure 3, Node — no Java)
-```
-
-`reports/allure-results/` accumulates across runs — clear it before a report you intend
-to publish.
+**Allure is switched off for now** (`features.allure_enabled: false` in `settings.yaml`,
+`--alluredir` commented out in `pytest.ini`), so no `reports/allure-results/` files and no
+Allure site are produced. The reporting code is untouched and still called; it no-ops
+while the flag is false. Re-enable by flipping the flag *and* restoring `--alluredir` —
+see [docs/setup/running-tests.md](docs/setup/running-tests.md#3-allure--the-full-report-with-attachments).
 
 ## Adding a module
 

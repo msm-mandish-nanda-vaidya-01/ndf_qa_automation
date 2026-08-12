@@ -315,7 +315,8 @@ async def run(env: str, subsidiary_cd: str, kind: str | None = None) -> list[dic
 
     async with async_playwright() as playwright:
         browser = await playwright[config.settings["browser"]["name"]].launch(
-            headless=config.feature("fe_headless", True),
+            headless=config.feature(False),
+            # headless=config.feature("fe_headless", True),
             slow_mo=config.settings["browser"].get("slow_mo_ms", 0),
         )
         try:

@@ -110,7 +110,8 @@ only the keys it names.
 | `features.fe_headless` | `true` | **Set `false` to watch the browser** |
 | `features.fe_screenshot_on_failure` | `true` | Attach a screenshot + URL on FE failure |
 | `features.fe_trace_on_failure` | `true` | Write a Playwright trace per failed FE case to `reports/traces/<case>.zip`. View with `playwright show-trace <file>` |
-| `features.auto_generate_allure_report` | `true` | Render the Allure site at the end of each session. Non-fatal when the CLI is absent |
+| `features.allure_enabled` | `false` | Master switch for all Allure output — run metadata, attachments and the site. Off for now; see "Allure" below |
+| `features.auto_generate_allure_report` | `true` | Render the Allure site at the end of each session. Non-fatal when the CLI is absent. Ignored while `allure_enabled` is false |
 | `browser.name` | `chromium` | Any Playwright browser |
 | `browser.viewport` | `1920x1080` | Applied per browser context |
 | `browser.slow_mo_ms` | `0` | Raise to slow the UI down while debugging |
@@ -193,6 +194,15 @@ open  reports/pytest-report.html      # macOS
 
 ### 3. Allure — the full report with attachments
 
+> **Currently disabled.** `features.allure_enabled: false` in `settings.yaml`, and
+> `--alluredir` is commented out in `pytest.ini`. A run writes **no** files under
+> `reports/allure-results/` and generates no site; use the pytest HTML report above
+> meanwhile. All the reporting code is intact — modules still call the attachment helpers
+> and those simply no-op. To turn it back on, flip the flag **and** un-comment
+> `--alluredir` (the flag alone isn't enough — `--alluredir` is what activates
+> `allure-pytest` in the first place). The rest of this section describes that enabled
+> state.
+
 Raw results are written to `reports/allure-results/` on every run and include:
 
 - `environment.properties` — the run's env / subsidiary / data set
@@ -243,7 +253,8 @@ Because the two CLIs disagree on flags, `report_generator.generate_report` passe
 `-o` and removes the stale output directory in Python — so it works with either.
 
 Turn the automatic step off with `features.auto_generate_allure_report: false` in
-`settings.yaml`. If the CLI is ever missing, the run still passes and logs one WARNING
+`settings.yaml`, or turn Allure off entirely with `features.allure_enabled: false` (the
+current setting). If the CLI is ever missing, the run still passes and logs one WARNING
 naming the manual command — a reporting tool never turns a green suite red.
 
 > **Clean between runs.** `reports/allure-results/` **accumulates** — each run appends

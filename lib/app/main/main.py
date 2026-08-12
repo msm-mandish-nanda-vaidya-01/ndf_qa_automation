@@ -37,7 +37,10 @@ def build_parser() -> argparse.ArgumentParser:
       -n, --parallel N                         xdist workers ("auto" allowed)
       --headed                                 override features.fe_headless
       --reruns N                               retry flaky tests
-      --report                                 run `allure generate` afterwards
+      --report                                 run `allure generate` afterwards; while
+                                               features.allure_enabled is false no run
+                                               produces results, so there is nothing to
+                                               render
       --dry-run                                print the pytest command and exit
       -v, --verbose                            raise log level to DEBUG
     """

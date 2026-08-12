@@ -11,10 +11,19 @@ with no ``--alluredir``, or an orchestrator invoked outside pytest): they degrad
 debug log rather than raising, so reporting concerns can never fail a test. That applies
 to serialisation too — an unserialisable payload is attached as a note, not raised.
 
+**Reporting is currently switched off** via ``features.allure_enabled: false`` in
+settings.yaml (and the matching commented-out ``--alluredir`` in pytest.ini). Everything
+here is kept wired up and callable — modules still call the attachment helpers on failure
+exactly as before — but while the flag is false they short-circuit to a debug log and no
+file under ``reports/allure-results`` is written. See :func:`allure_enabled`.
+
 :func:`generate_report` is the deliberate exception: rendering the HTML site is an explicit
 request that depends on an external tool, so it raises :class:`AllureCliError` when that
-tool is missing. The automatic post-run call in ``lib/core/fixtures/conftest.py`` catches
-that and warns, so a machine without the Allure commandline still gets a green run.
+tool is missing, and it does *not* consult the feature flag — calling it by hand (``make
+report``) is an explicit override. The automatic post-run call in
+``lib/core/fixtures/conftest.py`` is the one that respects the flag, and it also catches
+:class:`AllureCliError` and warns, so a machine without the Allure commandline still gets
+a green run.
 
 **Redaction is the caller's job.** These helpers serialise what they are given and know
 nothing about any module's secrets — see ``attach_module_results``.
@@ -29,12 +38,38 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from lib.core.config.env_config import REPORTS_ROOT
+from lib.core.config.env_config import REPORTS_ROOT, get_config
 
 logger = logging.getLogger(__name__)
 
 ALLURE_RESULTS_DIR = REPORTS_ROOT / "allure-results"
 ALLURE_REPORT_DIR = REPORTS_ROOT / "allure-report"
+
+#: Feature flag in settings.yaml that gates every Allure artifact this module produces.
+ALLURE_ENABLED_FEATURE = "allure_enabled"
+
+
+def allure_enabled() -> bool:
+    """Report whether Allure artifacts should be produced at all.
+
+    Why: reporting is currently disabled repo-wide, and the switch has to hold for both
+    entry points — pytest runs *and* orchestrators invoked straight from the CLI — without
+    deleting the reporting code or making every caller check a flag first. Reading it here
+    means the helpers below are the single place that has to honour it.
+
+    Defaults to ``True`` when the flag is absent or the configuration can't be resolved, so
+    the fallback is the module's original behaviour rather than silent data loss: a
+    misconfigured machine still writes its report instead of quietly producing nothing.
+
+    Returns:
+        ``True`` if ``features.allure_enabled`` is set (or unset) truthy, ``False``
+        otherwise. Never raises — a reporting decision must not fail a run.
+    """
+    try:
+        return get_config().feature(ALLURE_ENABLED_FEATURE, True)
+    except Exception as exc:  # noqa: BLE001 - reporting must never fail a test
+        logger.debug("Could not read the %r feature flag: %s", ALLURE_ENABLED_FEATURE, exc)
+        return True
 
 
 class AllureCliError(RuntimeError):
@@ -55,6 +90,10 @@ def _attach(name: str, body: str | bytes, attachment_type_name: str) -> None:
     rather than passed as an object so callers never have to import ``allure``
     themselves — which would reintroduce the hard dependency this guards against.
 
+    Returns early without attaching anything while :func:`allure_enabled` is false, which
+    is the current repo default — that is the one place the kill switch is enforced for
+    every ``attach_*`` helper.
+
     Args:
         name: Attachment title shown in the report.
         body: Attachment content.
@@ -63,6 +102,10 @@ def _attach(name: str, body: str | bytes, attachment_type_name: str) -> None:
     Returns:
         None.
     """
+    if not allure_enabled():
+        logger.debug("Allure reporting disabled; skipping attachment %r", name)
+        return
+
     try:
         import allure
     except ImportError:  # pragma: no cover - allure-pytest is a hard requirement in CI
@@ -187,6 +230,9 @@ def write_run_metadata(env: str, subsidiary: str, data_set: str) -> None:
     Creates the results directory if it doesn't exist yet, so this can run before pytest
     has written anything.
 
+    No-ops while :func:`allure_enabled` is false (the current repo default) — including the
+    ``mkdir``, so a disabled run leaves no empty ``reports/allure-results`` behind.
+
     Args:
         env: The run's resolved environment.
         subsidiary: The run's resolved subsidiary code.
@@ -195,6 +241,10 @@ def write_run_metadata(env: str, subsidiary: str, data_set: str) -> None:
     Returns:
         None.
     """
+    if not allure_enabled():
+        logger.debug("Allure reporting disabled; not writing run metadata")
+        return
+
     ALLURE_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     properties = "\n".join([f"env={env}", f"subsidiary={subsidiary}", f"data_set={data_set}"])
     (ALLURE_RESULTS_DIR / "environment.properties").write_text(properties + "\n", encoding="utf-8")
@@ -215,8 +265,13 @@ def generate_report(
     machine.
 
     Called automatically at the end of a pytest session by ``conftest``'s
-    ``pytest_sessionfinish`` hook. This function raises when the CLI is missing or fails;
-    that caller catches and warns, so a missing CLI never turns a passing run red.
+    ``pytest_sessionfinish`` hook — though that caller skips it entirely while
+    ``features.allure_enabled`` is false, which is the current repo default. This function
+    itself does *not* consult that flag: invoking it directly (``make report``) is an
+    explicit override, and with reporting off there will simply be no results to render, so
+    it raises the usual "no results" :class:`AllureCliError`. It also raises when the CLI is
+    missing or fails; the ``conftest`` caller catches both and warns, so a missing CLI never
+    turns a passing run red.
 
     Deliberately version-agnostic across Allure 2 (Java) and Allure 3 (Node). The two
     CLIs share ``generate <results> -o <output>`` but diverge on everything else — notably
